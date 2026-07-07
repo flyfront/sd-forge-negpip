@@ -99,13 +99,9 @@ def _tokenize_line_negpip(
 
     parsed = parsing.parse_prompt_attention(line, engine.emphasis.name)
 
-    for pair in parsed:
-        if pair[0] == "BREAK" and pair[1] == -1:
-            pair[1] = 1.0
-
     if all(weight == 1.0 for _, weight in parsed):
         chunk = engine.tokenize_line(line)[0]
-        return chunk.tokens, [1.0 if m == -1 else m for m in chunk.multipliers]
+        return chunk.tokens, chunk.multipliers
 
     prefix, suffix = engine.llama_template.split("{}")
     tokenized = engine.tokenizer([prefix, *(text for text, _ in parsed), suffix])["input_ids"]
