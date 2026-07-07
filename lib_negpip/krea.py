@@ -131,6 +131,13 @@ def _encode_line(
     neutral = [1.0] * len(multipliers)
     magnitude_idx = [i for i, m in enumerate(multipliers) if abs(m) != 1.0]
 
+    if v_scaling > 0.0:
+        # with V-scaling the magnitude is carried by the attention value mask
+        # below; the lerp extrapolation would instead drift the embedding away
+        # from its meaning (the larger the weight, the less the token reads as
+        # itself), so keep the encoding untouched
+        magnitude_idx = []
+
     if magnitude_idx:
         # apply the weight magnitudes on the encoder output, by lerping between a
         # neutral (empty) encoding and the actual encoding; scaling the input
