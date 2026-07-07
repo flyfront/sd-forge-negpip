@@ -9,7 +9,7 @@ from lib_negpip import IS_NEO, INCOMPATIBLE_EXTENSIONS
 from lib_negpip.anima import patch_anima_negpip
 from lib_negpip.krea import patch_krea2_negpip
 from lib_negpip.sd import patch_sd_negpip
-from lib_negpip.utils import NEG_PATTERN, any_negative, hr_dealer, reset_prompt_cache
+from lib_negpip.utils import NEG_PATTERN, any_negative, any_weighted, hr_dealer, reset_prompt_cache
 
 from modules import scripts
 from modules.prompt_parser import (
@@ -98,28 +98,42 @@ class NegPiP(scripts.Script):
     def process_batch(self, p: "StableDiffusionProcessing", *args, **kwargs):
         self.reset()
 
-        if not any_negative(p):
-            return
-
-        if not _verify_ext(p):
-            print("NegPiP Disabled")
-            return
-
         if IS_NEO and not p.sd_model.is_webui_legacy_model():
             model_type = type(p.sd_model).__name__
             self.is_anima = model_type == "Anima"
             self.is_krea2 = model_type == "Krea2"
 
             if self.is_anima:
-                patch_anima_negpip(NegPiP)
+                active = any_negative(p)
             elif self.is_krea2:
-                patch_krea2_negpip(NegPiP)
+                # the weight magnitudes only apply correctly while patched,
+                # so also activate on positive weights
+                active = any_negative(p) or any_weighted(p)
             else:
                 return
+
+            if not active:
+                return
+
+            if not _verify_ext(p):
+                print("NegPiP Disabled")
+                return
+
+            if self.is_anima:
+                patch_anima_negpip(NegPiP)
+            else:
+                patch_krea2_negpip(NegPiP)
 
             reset_prompt_cache(p)
             p.extra_generation_params["NegPiP"] = True
             self.active = True
+            return
+
+        if not any_negative(p):
+            return
+
+        if not _verify_ext(p):
+            print("NegPiP Disabled")
             return
 
         self.is_xl = p.sd_model.is_sdxl

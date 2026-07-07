@@ -43,3 +43,16 @@ def any_negative(p: "StableDiffusionProcessing") -> bool:
             have_negative(getattr(p, "hr_negative_prompts", None) or ""),
         ]
     )
+
+
+def any_weighted(p: "StableDiffusionProcessing") -> bool:
+    from backend.text_processing.emphasis import uses_emphasis
+
+    prompts = [
+        *p.prompts,
+        *p.negative_prompts,
+        *(getattr(p, "hr_prompts", None) or []),
+        *(getattr(p, "hr_negative_prompts", None) or []),
+    ]
+
+    return any(uses_emphasis(x) for x in prompts)
