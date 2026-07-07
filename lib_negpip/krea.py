@@ -248,11 +248,23 @@ def _hook_attn_forward(module: "Attention", remove: bool):
         if (batch := (x.size(0) // m.size(0))) > 1:
             m = m.repeat(batch, 1, 1)
         txtlen = min(m.size(1), v.size(1))
+
+        v_txt = None
+        if V_SCALING > 0.0:
+            # only the image tokens read the magnitude-scaled values; the text
+            # tokens keep reading sign-masked values, otherwise the amplified
+            # self-contribution swamps the text stream block after block and
+            # the token (and its keys) lose their meaning
+            sign = torch.where(m < 0, -torch.ones_like(m), torch.ones_like(m))
+            v_txt = v.clone()
+            v_txt[:, :txtlen] = v_txt[:, :txtlen] * sign[:, :txtlen]
         v[:, :txtlen] = v[:, :txtlen] * m[:, :txtlen]
 
         q = rearrange(q, "B L (H D) -> B H L D", H=module.heads)
         k = rearrange(k, "B L (H D) -> B H L D", H=module.kvheads)
         v = rearrange(v, "B L (H D) -> B H L D", H=module.kvheads)
+        if v_txt is not None:
+            v_txt = rearrange(v_txt, "B L (H D) -> B H L D", H=module.kvheads)
         q, k = module.qknorm(q, k)
         if freqs is not None:
             q, k = apply_rope(q, k, freqs)
@@ -260,7 +272,15 @@ def _hook_attn_forward(module: "Attention", remove: bool):
             rep = module.heads // module.kvheads
             k = k.repeat_interleave(rep, dim=1)
             v = v.repeat_interleave(rep, dim=1)
-        out = attention_function(q, k, v, module.heads, mask=mask, skip_reshape=True, transformer_options=transformer_options)
+            if v_txt is not None:
+                v_txt = v_txt.repeat_interleave(rep, dim=1)
+
+        if v_txt is None:
+            out = attention_function(q, k, v, module.heads, mask=mask, skip_reshape=True, transformer_options=transformer_options)
+        else:
+            out_txt = attention_function(q[:, :, :txtlen], k, v_txt, module.heads, mask=mask, skip_reshape=True, transformer_options=transformer_options)
+            out_img = attention_function(q[:, :, txtlen:], k, v, module.heads, mask=mask, skip_reshape=True, transformer_options=transformer_options)
+            out = torch.cat((out_txt, out_img), dim=1)
         return module.wo(out * F.sigmoid(gate))
 
     module.forward = negpip_forward
