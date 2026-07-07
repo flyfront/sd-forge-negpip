@@ -12,13 +12,13 @@ This is an Extension for Forge [Classic](https://github.com/Haoming02/sd-webui-f
 
 ## Krea 2
 
-The built-in prompt weighting has practically no effect on Krea 2. This extension implements it properly: `(word:-1.0)` suppresses the concept, just like NegPiP on the other models. Positive weights such as `(word:1.5)` are supported as well, but their effect remains subtle due to how the Krea 2 architecture works — expect the negative suppression to be far more noticeable.
+The built-in prompt weighting has practically no effect on Krea 2. This extension adds NegPiP-style weighting support: negative weights such as `(word:-1.0)` can suppress concepts, just like NegPiP on the other models. Positive weights such as `(word:1.5)` are also applied, but they may be much less visible than negative weights because Krea 2 tends to normalize away simple magnitude changes.
 
 - The extension activates whenever any non-unit weight is present in the prompts, not just negative weights; the activation is recorded as `NegPiP: True` in the infotext
 - Krea 2 has no chunking and `BREAK` is not treated specially, same as without this extension; note that the prompt parser internally marks `BREAK` with a weight of `-1`, so a bare `BREAK` behaves like `(BREAK:-1.0)` while the extension is active
 
 > [!NOTE]
-> The Krea 2 support is based on [ComfyUI-krea2-negpip](https://github.com/blue-pen5805/ComfyUI-krea2-negpip). Following that implementation, weighted prompts are tokenized with the chat template applied once around the entire prompt, rather than once per weighted segment like the built-in emphasis does; the weight magnitudes are then applied on the text encoder output, by interpolating each weighted token between a neutral (empty) encoding and its actual encoding. The Krea 2 model however re-normalizes the token magnitudes at nearly every stage, so mostly the directional component of the weighting survives — which is why positive emphasis stays subtle, while negative weights, flipping the direction outright, act strongly. Weighted prompts render differently from extension-off.
+> The Krea 2 support is based on [ComfyUI-krea2-negpip](https://github.com/blue-pen5805/ComfyUI-krea2-negpip). Following that implementation, weighted prompts are tokenized with the chat template applied once around the entire prompt, rather than once per weighted segment like the built-in emphasis does. Weight magnitudes are applied on the text encoder output by interpolating each weighted token between a neutral (empty) encoding and its actual encoding. Since Krea 2 uses normalization heavily, positive weights mostly affect the remaining directional difference and can look subtle, while negative weights additionally flip the token direction in attention values and tend to be much more noticeable. Weighted prompts render differently from extension-off.
 
 ## Examples
 
