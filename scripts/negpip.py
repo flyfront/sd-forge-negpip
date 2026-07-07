@@ -34,6 +34,7 @@ def _verify_ext(p: " StableDiffusionProcessing"):
 
 
 class NegPiP(scripts.Script):
+    sorting_priority = 18139  # right below Krea2 Enhancer (18138)
     _patched: list[bool] = [False, False, False]
 
     def __init__(self):
