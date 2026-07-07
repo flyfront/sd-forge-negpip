@@ -3,12 +3,18 @@ This is an Extension for Forge [Classic](https://github.com/Haoming02/sd-webui-f
 
 > [!IMPORTANT]
 > Only **SD1** and **SDXL** are supported<br>
-> 🔥 **New:** Now supports **Anima**
+> 🔥 **New:** Now supports **Anima** & **Krea 2**
 
 ## How to Use
 
 - add `(foo:-1.0)` in the `positive prompt` to **remove** a concept
 - add `(bar:-1.0)` in the `negative prompt` to **enforce** a concept
+
+## Krea 2
+
+- While NegPiP is active, weighted prompts are tokenized with the chat template applied once around the entire prompt, instead of once per weighted segment like the built-in emphasis does; results may therefore differ slightly from NegPiP-off, even for positive weights
+- Weight magnitudes are applied on the text encoder output, by interpolating each weighted token between a neutral (empty) encoding and its actual encoding, following the ComfyUI implementation; unlike the built-in emphasis, `(word:2.0)` actually strengthens the token on Krea 2
+- `BREAK` is not treated as a negative weight
 
 ## Examples
 

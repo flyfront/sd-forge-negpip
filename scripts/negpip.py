@@ -7,6 +7,7 @@ if TYPE_CHECKING:
 import torch
 from lib_negpip import IS_NEO, INCOMPATIBLE_EXTENSIONS
 from lib_negpip.anima import patch_anima_negpip
+from lib_negpip.krea import patch_krea2_negpip
 from lib_negpip.sd import patch_sd_negpip
 from lib_negpip.utils import NEG_PATTERN, any_negative, hr_dealer, reset_prompt_cache
 
@@ -30,13 +31,14 @@ def _verify_ext(p: " StableDiffusionProcessing"):
 
 
 class NegPiP(scripts.Script):
-    _patched: list[bool] = [False, False]
+    _patched: list[bool] = [False, False, False]
 
     def __init__(self):
         self.active: bool = False
 
         self.is_xl: bool
         self.is_anima: bool
+        self.is_krea2: bool
         self.is_hr: bool
 
         self.tokenizer: torch.nn.Module
@@ -65,6 +67,7 @@ class NegPiP(scripts.Script):
 
         self.is_xl = False
         self.is_anima = False
+        self.is_krea2 = False
         self.is_hr = False
 
         self.tokenizer = None
@@ -81,6 +84,7 @@ class NegPiP(scripts.Script):
 
         patch_sd_negpip(None, NegPiP, unpatch=True)
         patch_anima_negpip(NegPiP, unpatch=True)
+        patch_krea2_negpip(NegPiP, unpatch=True)
 
     def title(self):
         return "NegPiP"
@@ -102,12 +106,20 @@ class NegPiP(scripts.Script):
             return
 
         if IS_NEO and not p.sd_model.is_webui_legacy_model():
-            self.is_anima = type(p.sd_model).__name__ == "Anima"
+            model_type = type(p.sd_model).__name__
+            self.is_anima = model_type == "Anima"
+            self.is_krea2 = model_type == "Krea2"
+
             if self.is_anima:
                 patch_anima_negpip(NegPiP)
-                reset_prompt_cache(p)
-                p.extra_generation_params["NegPiP"] = True
-                self.active = True
+            elif self.is_krea2:
+                patch_krea2_negpip(NegPiP)
+            else:
+                return
+
+            reset_prompt_cache(p)
+            p.extra_generation_params["NegPiP"] = True
+            self.active = True
             return
 
         self.is_xl = p.sd_model.is_sdxl
@@ -167,7 +179,7 @@ class NegPiP(scripts.Script):
         self.is_hr = True
 
     def denoiser_callback(self, params: CFGDenoiserParams):
-        if (not self.active) or self.is_anima:
+        if (not self.active) or self.is_anima or self.is_krea2:
             return
 
         conds_list = []
