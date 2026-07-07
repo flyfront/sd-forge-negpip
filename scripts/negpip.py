@@ -4,8 +4,10 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from modules.processing import StableDiffusionProcessing
 
+import gradio as gr
 import torch
 from lib_negpip import IS_NEO, INCOMPATIBLE_EXTENSIONS
+from lib_negpip import krea
 from lib_negpip.anima import patch_anima_negpip
 from lib_negpip.krea import patch_krea2_negpip
 from lib_negpip.sd import patch_sd_negpip
@@ -18,6 +20,7 @@ from modules.prompt_parser import (
     get_learned_conditioning_prompt_schedules,
 )
 from modules.script_callbacks import CFGDenoiserParams, on_cfg_denoiser
+from modules.ui_components import InputAccordion
 
 
 def _verify_ext(p: " StableDiffusionProcessing"):
@@ -82,6 +85,7 @@ class NegPiP(scripts.Script):
         self.unconds_all = None
         self.hr_unconds_all = None
 
+        krea.V_SCALING = 0.0
         patch_sd_negpip(None, NegPiP, unpatch=True)
         patch_anima_negpip(NegPiP, unpatch=True)
         patch_krea2_negpip(NegPiP, unpatch=True)
@@ -93,9 +97,35 @@ class NegPiP(scripts.Script):
         return scripts.AlwaysVisible
 
     def ui(self, is_img2img):
-        return None
+        if not IS_NEO:
+            return None
 
-    def process_batch(self, p: "StableDiffusionProcessing", *args, **kwargs):
+        with InputAccordion(False, label="NegPiP V-Scaling (Krea 2)") as v_scaling:
+            v_strength = gr.Slider(
+                minimum=0.0,
+                maximum=2.0,
+                value=1.0,
+                step=0.05,
+                label="Strength",
+            )
+
+        for comp in (v_scaling, v_strength):
+            comp.do_not_save_to_config = True
+
+        self.infotext_fields = [
+            (v_scaling, lambda d: "NegPiP V-Scaling" in d),
+            (v_strength, "NegPiP V-Scaling"),
+        ]
+        return [v_scaling, v_strength]
+
+    def process_batch(
+        self,
+        p: "StableDiffusionProcessing",
+        v_scaling: bool = False,
+        v_strength: float = 1.0,
+        *args,
+        **kwargs,
+    ):
         self.reset()
 
         if IS_NEO and not p.sd_model.is_webui_legacy_model():
@@ -122,6 +152,10 @@ class NegPiP(scripts.Script):
             if self.is_anima:
                 patch_anima_negpip(NegPiP)
             else:
+                if v_scaling:
+                    krea.V_SCALING = max(0.0, min(2.0, float(v_strength)))
+                if krea.V_SCALING > 0.0:
+                    p.extra_generation_params["NegPiP V-Scaling"] = krea.V_SCALING
                 patch_krea2_negpip(NegPiP)
 
             reset_prompt_cache(p)

@@ -23,6 +23,10 @@ from backend.text_processing import emphasis, parsing
 from lib_negpip.anima import _hook_compile_conditions
 from modules import shared
 
+# 0.0 = off (plain ±1 sign mask); set per-generation by scripts/negpip.py from
+# the "NegPiP V-Scaling" UI, blending the mask toward the signed weight itself
+V_SCALING: float = 0.0
+
 
 def patch_krea2_negpip(cls: "NegPiP", *, unpatch=False):
     if unpatch != cls._patched[2]:
@@ -68,7 +72,7 @@ def _hook_get_learned_conditioning(model: "Krea2Engine", remove: bool):
 
         for line in prompt:
             if line not in cache:
-                cache[line] = _encode_line(engine, line)
+                cache[line] = _encode_line(engine, line, V_SCALING)
             cond, mask = cache[line]
 
             _count += int((mask < 0).sum())
@@ -120,7 +124,7 @@ def _tokenize_line_negpip(
 
 
 def _encode_line(
-    engine: "Qwen3VLTextProcessingEngine", line: str
+    engine: "Qwen3VLTextProcessingEngine", line: str, v_scaling: float = 0.0
 ) -> tuple[torch.Tensor, torch.Tensor]:
     tokens, multipliers = _tokenize_line_negpip(engine, line)
 
@@ -148,6 +152,11 @@ def _encode_line(
     weights = torch.tensor(multipliers, dtype=torch.float32)
     ones = torch.ones_like(weights)
     mask = torch.where(weights < 0, -ones, ones)
+    if v_scaling > 0.0:
+        # blend the ±1 sign mask toward the signed weight itself; v is the only
+        # tensor in the main-block attention that no normalization touches, so
+        # this directly scales each token's contribution, not just its direction
+        mask = torch.lerp(mask, weights, v_scaling)
 
     cond = engine.strip_template(cond, tokens)
     mask = engine.strip_template(mask.reshape(1, 1, -1, 1), tokens)
