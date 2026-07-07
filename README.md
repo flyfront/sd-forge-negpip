@@ -12,12 +12,13 @@ This is an Extension for Forge [Classic](https://github.com/Haoming02/sd-webui-f
 
 ## Krea 2
 
-The Krea 2 support is based on [ComfyUI-krea2-negpip](https://github.com/blue-pen5805/ComfyUI-krea2-negpip).
+Due to how it is implemented, the built-in prompt weighting has practically no effect on Krea 2. With this extension, the weights work as intended — not only the negative ones, but also the positive ones: `(word:2.0)` now actually strengthens the concept.
 
-- On Krea 2, the extension activates whenever any non-unit weight is present in the prompts, not just negative weights, so that `(word:2.0)` also works standalone; the activation is recorded as `NegPiP: True` in the infotext
-- While NegPiP is active, weighted prompts are tokenized with the chat template applied once around the entire prompt, instead of once per weighted segment like the built-in emphasis does; results may therefore differ slightly from NegPiP-off, even for positive weights
-- Weight magnitudes are applied on the text encoder output, by interpolating each weighted token between a neutral (empty) encoding and its actual encoding, following the ComfyUI implementation; unlike the built-in emphasis, `(word:2.0)` actually strengthens the token on Krea 2
+- The extension activates whenever any non-unit weight is present in the prompts, not just negative weights; the activation is recorded as `NegPiP: True` in the infotext
 - `BREAK` is not treated as a negative weight
+
+> [!NOTE]
+> The Krea 2 support is based on [ComfyUI-krea2-negpip](https://github.com/blue-pen5805/ComfyUI-krea2-negpip). Following that implementation, weighted prompts are tokenized with the chat template applied once around the entire prompt, rather than once per weighted segment like the built-in emphasis does; the weight magnitudes are then applied on the text encoder output, by interpolating each weighted token between a neutral (empty) encoding and its actual encoding. Weighted prompts therefore render differently from extension-off.
 
 ## Examples
 
