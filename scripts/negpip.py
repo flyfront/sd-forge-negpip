@@ -110,9 +110,6 @@ class NegPiP(scripts.Script):
                 label="Strength",
             )
 
-        for comp in (v_scaling, v_strength):
-            comp.do_not_save_to_config = True
-
         self.infotext_fields = [
             (v_scaling, lambda d: "NegPiP V-Scaling" in d),
             (v_strength, "NegPiP V-Scaling"),
@@ -157,6 +154,7 @@ class NegPiP(scripts.Script):
                     krea.V_SCALING = max(0.0, min(2.0, float(v_strength)))
                 if krea.V_SCALING > 0.0:
                     p.extra_generation_params["NegPiP V-Scaling"] = krea.V_SCALING
+                    print(f"NegPiP V-Scaling: {krea.V_SCALING}")
                 patch_krea2_negpip(NegPiP)
 
             reset_prompt_cache(p)
