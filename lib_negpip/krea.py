@@ -24,18 +24,39 @@ from lib_negpip.anima import _hook_compile_conditions
 from modules import shared
 
 
+_PATCHED_MODEL = None
+_PATCHED_DIT = None
+
+
 def patch_krea2_negpip(cls: "NegPiP", *, unpatch=False):
+    global _PATCHED_MODEL, _PATCHED_DIT
+
     if unpatch != cls._patched[2]:
         return
 
-    cls._patched[2] = not cls._patched[2]
+    if unpatch:
+        if _PATCHED_MODEL is not None:
+            _hook_get_learned_conditioning(_PATCHED_MODEL, True)
+        if _PATCHED_DIT is not None:
+            _hook_dit_forward(_PATCHED_DIT, True)
+            _hook_attn_forwards(_PATCHED_DIT, True)
+        _hook_compile_conditions(True)
+
+        _PATCHED_MODEL = None
+        _PATCHED_DIT = None
+        cls._patched[2] = False
+        return
 
     model: "Krea2Engine" = shared.sd_model
     dit: "SingleStreamDiT" = model.forge_objects.unet.model.diffusion_model
-    _hook_get_learned_conditioning(model, unpatch)
-    _hook_dit_forward(dit, unpatch)
-    _hook_attn_forwards(dit, unpatch)
-    _hook_compile_conditions(unpatch)
+    _hook_get_learned_conditioning(model, False)
+    _hook_dit_forward(dit, False)
+    _hook_attn_forwards(dit, False)
+    _hook_compile_conditions(False)
+
+    _PATCHED_MODEL = model
+    _PATCHED_DIT = dit
+    cls._patched[2] = True
 
 
 # ================================================================================ #
@@ -43,17 +64,19 @@ def patch_krea2_negpip(cls: "NegPiP", *, unpatch=False):
 
 def _hook_get_learned_conditioning(model: "Krea2Engine", remove: bool):
     if remove:
-        if hasattr(model, "orig_forward"):
-            model.get_learned_conditioning = model.orig_forward
-            del model.orig_forward
+        if hasattr(model, "_negpip_orig_get_learned_conditioning"):
+            if getattr(model.get_learned_conditioning, "_negpip", False):
+                model.get_learned_conditioning = model._negpip_orig_get_learned_conditioning
+            del model._negpip_orig_get_learned_conditioning
         return
 
-    model.orig_forward = model.get_learned_conditioning
+    orig_get_learned_conditioning = model.get_learned_conditioning
+    model._negpip_orig_get_learned_conditioning = orig_get_learned_conditioning
 
     engine: "Qwen3VLTextProcessingEngine" = model.text_processing_engine_qwen
 
     @torch.inference_mode()
-    @wraps(model.orig_forward)
+    @wraps(orig_get_learned_conditioning)
     def negpip_learned_conditioning(prompt: "SdConditioning"):
         memory_management.load_model_gpu(model.forge_objects.clip.patcher)
 
@@ -85,6 +108,7 @@ def _hook_get_learned_conditioning(model: "Krea2Engine", remove: bool):
             "c_negpip_mask": negpip_mask,
         }
 
+    negpip_learned_conditioning._negpip = True
     model.get_learned_conditioning = negpip_learned_conditioning
 
 
@@ -162,16 +186,17 @@ def _encode_line(
 
 def _hook_dit_forward(dit: "SingleStreamDiT", remove: bool):
     if remove:
-        if hasattr(dit, "orig_forward"):
+        if hasattr(dit, "_negpip_orig_forward"):
             if getattr(dit.forward, "_negpip", False):
-                dit.forward = dit.orig_forward
-            del dit.orig_forward
+                dit.forward = dit._negpip_orig_forward
+            del dit._negpip_orig_forward
         return
 
-    dit.orig_forward = dit.forward
+    orig_forward = dit.forward
+    dit._negpip_orig_forward = orig_forward
 
     @torch.inference_mode()
-    @wraps(dit.orig_forward)
+    @wraps(orig_forward)
     def negpip_forward(
         x: torch.Tensor,
         timesteps: torch.Tensor,
@@ -187,7 +212,7 @@ def _hook_dit_forward(dit: "SingleStreamDiT", remove: bool):
                 negpip_mask = negpip_mask.squeeze(1)
             transformer_options = {**transformer_options, "negpip_mask": negpip_mask}
 
-        return dit.orig_forward(
+        return orig_forward(
             x,
             timesteps,
             context,
@@ -207,15 +232,17 @@ def _hook_attn_forwards(dit: "SingleStreamDiT", remove: bool):
 
 def _hook_attn_forward(module: "Attention", remove: bool):
     if remove:
-        if hasattr(module, "orig_forward"):
-            module.forward = module.orig_forward
-            del module.orig_forward
+        if hasattr(module, "_negpip_orig_forward"):
+            if getattr(module.forward, "_negpip", False):
+                module.forward = module._negpip_orig_forward
+            del module._negpip_orig_forward
         return
 
-    module.orig_forward = module.forward
+    orig_forward = module.forward
+    module._negpip_orig_forward = orig_forward
 
     @torch.inference_mode()
-    @wraps(module.orig_forward)
+    @wraps(orig_forward)
     def negpip_forward(
         x: torch.Tensor,
         freqs: Optional[torch.Tensor] = None,
@@ -224,7 +251,7 @@ def _hook_attn_forward(module: "Attention", remove: bool):
     ):
         negpip_mask: torch.Tensor = transformer_options.get("negpip_mask", None)
         if negpip_mask is None:
-            return module.orig_forward(x, freqs, mask, transformer_options)
+            return orig_forward(x, freqs, mask, transformer_options)
 
         q, k, v, gate = module.wq(x), module.wk(x), module.wv(x), module.gate(x)
 
@@ -247,4 +274,5 @@ def _hook_attn_forward(module: "Attention", remove: bool):
         out = attention_function(q, k, v, module.heads, mask=mask, skip_reshape=True, transformer_options=transformer_options)
         return module.wo(out * F.sigmoid(gate))
 
+    negpip_forward._negpip = True
     module.forward = negpip_forward
