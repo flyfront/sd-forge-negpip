@@ -46,7 +46,13 @@ def scope_v_scaling_method(obj, name: str, strength: float):
     if current is None:
         return
 
-    original = getattr(current, "_negpip_original", current)
+    # functools.wraps copies __dict__, so a foreign wrapper built around our
+    # scoped function inherits these attributes; only unwrap through them when
+    # the self-reference proves the function really is our own wrapper.
+    if getattr(current, "_negpip_scoped", None) is current:
+        original = current._negpip_original
+    else:
+        original = current
 
     @wraps(original)
     def scoped(*args, **kwargs):
@@ -58,6 +64,7 @@ def scope_v_scaling_method(obj, name: str, strength: float):
                 setattr(obj, name, original)
 
     scoped._negpip_original = original
+    scoped._negpip_scoped = scoped
     setattr(obj, name, scoped)
 
 
@@ -216,7 +223,9 @@ def _encode_line(
     if v_scaling > 0.0:
         # Strength is an exponent: 0 gives the sign-only mask, 1 gives the raw
         # weight, and values above 1 strengthen magnitude without crossing zero.
-        image_mask = sign_mask * weights.abs().pow(v_scaling)
+        # Floor |w| so a zero weight still fades continuously from the sign-only
+        # mask at Strength 0 instead of snapping to 0 for any Strength above it.
+        image_mask = sign_mask * weights.abs().clamp_min(1e-4).pow(v_scaling)
         mask = torch.stack((image_mask, sign_mask), dim=-1)
     else:
         mask = sign_mask.unsqueeze(-1)
