@@ -1,5 +1,7 @@
 # https://github.com/blue-pen5805/ComfyUI-krea2-negpip
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from functools import wraps
 from typing import TYPE_CHECKING, Optional
 
@@ -23,13 +25,40 @@ from backend.text_processing import emphasis, parsing
 from lib_negpip.anima import _hook_compile_conditions
 from modules import shared
 
-# 0.0 = off (plain ±1 sign mask); set per-generation by scripts/negpip.py from
-# the "NegPiP V-Scaling" UI, blending the mask toward the signed weight itself
-V_SCALING: float = 0.0
+_V_SCALING: ContextVar[float] = ContextVar("negpip_v_scaling", default=0.0)
 
 
 _PATCHED_MODEL = None
 _PATCHED_DIT = None
+
+
+@contextmanager
+def v_scaling_scope(strength: float):
+    token = _V_SCALING.set(strength)
+    try:
+        yield
+    finally:
+        _V_SCALING.reset(token)
+
+
+def scope_v_scaling_method(obj, name: str, strength: float):
+    current = getattr(obj, name, None)
+    if current is None:
+        return
+
+    original = getattr(current, "_negpip_original", current)
+
+    @wraps(original)
+    def scoped(*args, **kwargs):
+        try:
+            with v_scaling_scope(strength):
+                return original(*args, **kwargs)
+        finally:
+            if getattr(obj, name, None) is scoped:
+                setattr(obj, name, original)
+
+    scoped._negpip_original = original
+    setattr(obj, name, scoped)
 
 
 def patch_krea2_negpip(cls: "NegPiP", *, unpatch=False):
@@ -83,6 +112,7 @@ def _hook_get_learned_conditioning(model: "Krea2Engine", remove: bool):
     @wraps(orig_get_learned_conditioning)
     def negpip_learned_conditioning(prompt: "SdConditioning"):
         memory_management.load_model_gpu(model.forge_objects.clip.patcher)
+        v_scaling = _V_SCALING.get()
 
         engine.emphasis = emphasis.get_current_option(shared.opts.emphasis)()
         if any(emphasis.uses_emphasis(x) for x in prompt):
@@ -95,10 +125,10 @@ def _hook_get_learned_conditioning(model: "Krea2Engine", remove: bool):
 
         for line in prompt:
             if line not in cache:
-                cache[line] = _encode_line(engine, line, V_SCALING)
+                cache[line] = _encode_line(engine, line, v_scaling)
             cond, mask = cache[line]
 
-            _count += int((mask < 0).sum())
+            _count += int((mask[..., -1] < 0).sum())
 
             crossattn.append(cond)
             negpip_mask.append(mask)
@@ -153,14 +183,14 @@ def _encode_line(
     tokens, multipliers = _tokenize_line_negpip(engine, line)
 
     neutral = [1.0] * len(multipliers)
-    magnitude_idx = [i for i, m in enumerate(multipliers) if abs(m) != 1.0]
-
-    if v_scaling > 0.0:
-        # with V-scaling the magnitude is carried by the attention value mask
-        # below; the lerp extrapolation would instead drift the embedding away
-        # from its meaning (the larger the weight, the less the token reads as
-        # itself), so keep the encoding untouched
-        magnitude_idx = []
+    encoder_fade = min(max(v_scaling, 0.0), 1.0)
+    if encoder_fade >= 1.0:
+        encoder_scales = [1.0] * len(multipliers)
+    else:
+        # Fade the ComfyUI-compatible encoder lerp out continuously as V-scaling
+        # takes over, while retaining the exact endpoints at Strength 0 and 1.
+        encoder_scales = [abs(m) + (1.0 - abs(m)) * encoder_fade for m in multipliers]
+    magnitude_idx = [i for i, scale in enumerate(encoder_scales) if scale != 1.0]
 
     if magnitude_idx:
         # apply the weight magnitudes on the encoder output, by lerping between a
@@ -172,7 +202,7 @@ def _encode_line(
 
         idx = torch.tensor(magnitude_idx, device=cond.device, dtype=torch.long)
         scale = torch.tensor(
-            [abs(multipliers[i]) for i in magnitude_idx],
+            [encoder_scales[i] for i in magnitude_idx],
             device=cond.device,
             dtype=cond.dtype,
         ).reshape(1, 1, -1, 1)
@@ -182,15 +212,17 @@ def _encode_line(
 
     weights = torch.tensor(multipliers, dtype=torch.float32)
     ones = torch.ones_like(weights)
-    mask = torch.where(weights < 0, -ones, ones)
+    sign_mask = torch.where(weights < 0, -ones, ones)
     if v_scaling > 0.0:
-        # blend the ±1 sign mask toward the signed weight itself; v is the only
-        # tensor in the main-block attention that no normalization touches, so
-        # this directly scales each token's contribution, not just its direction
-        mask = torch.lerp(mask, weights, v_scaling)
+        # Strength is an exponent: 0 gives the sign-only mask, 1 gives the raw
+        # weight, and values above 1 strengthen magnitude without crossing zero.
+        image_mask = sign_mask * weights.abs().pow(v_scaling)
+        mask = torch.stack((image_mask, sign_mask), dim=-1)
+    else:
+        mask = sign_mask.unsqueeze(-1)
 
     cond = engine.strip_template(cond, tokens)
-    mask = engine.strip_template(mask.reshape(1, 1, -1, 1), tokens)
+    mask = engine.strip_template(mask.reshape(1, 1, mask.shape[0], mask.shape[1]), tokens)
 
     if mask.shape[1] < cond.shape[1]:
         mask = F.pad(mask, (0, 0, 0, cond.shape[1] - mask.shape[1]), value=1.0)
@@ -275,23 +307,18 @@ def _hook_attn_forward(module: "Attention", remove: bool):
         if (batch := (x.size(0) // m.size(0))) > 1:
             m = m.repeat(batch, 1, 1)
         txtlen = min(m.size(1), v.size(1))
+        split_queries = m.size(-1) > 1
+        image_mask = m[..., :1]
+        sign_mask = m[..., -1:]
 
-        v_txt = None
-        if V_SCALING > 0.0:
-            # only the image tokens read the magnitude-scaled values; the text
-            # tokens keep reading sign-masked values, otherwise the amplified
-            # self-contribution swamps the text stream block after block and
-            # the token (and its keys) lose their meaning
-            sign = torch.where(m < 0, -torch.ones_like(m), torch.ones_like(m))
-            v_txt = v.clone()
-            v_txt[:, :txtlen] = v_txt[:, :txtlen] * sign[:, :txtlen]
-        v[:, :txtlen] = v[:, :txtlen] * m[:, :txtlen]
+        # Text queries always read sign-masked values. When image queries need
+        # different magnitudes, reuse this V tensor after text attention instead
+        # of retaining a second head-expanded copy.
+        v[:, :txtlen] = v[:, :txtlen] * sign_mask[:, :txtlen]
 
         q = rearrange(q, "B L (H D) -> B H L D", H=module.heads)
         k = rearrange(k, "B L (H D) -> B H L D", H=module.kvheads)
         v = rearrange(v, "B L (H D) -> B H L D", H=module.kvheads)
-        if v_txt is not None:
-            v_txt = rearrange(v_txt, "B L (H D) -> B H L D", H=module.kvheads)
         q, k = module.qknorm(q, k)
         if freqs is not None:
             q, k = apply_rope(q, k, freqs)
@@ -299,16 +326,25 @@ def _hook_attn_forward(module: "Attention", remove: bool):
             rep = module.heads // module.kvheads
             k = k.repeat_interleave(rep, dim=1)
             v = v.repeat_interleave(rep, dim=1)
-            if v_txt is not None:
-                v_txt = v_txt.repeat_interleave(rep, dim=1)
 
-        if v_txt is None:
+        if not split_queries:
             out = attention_function(q, k, v, module.heads, mask=mask, skip_reshape=True, transformer_options=transformer_options)
         else:
-            out_txt = attention_function(q[:, :, :txtlen], k, v_txt, module.heads, mask=mask, skip_reshape=True, transformer_options=transformer_options)
-            out_img = attention_function(q[:, :, txtlen:], k, v, module.heads, mask=mask, skip_reshape=True, transformer_options=transformer_options)
+            txt_mask = _slice_query_mask(mask, 0, txtlen, q.size(2))
+            img_mask = _slice_query_mask(mask, txtlen, q.size(2), q.size(2))
+            out_txt = attention_function(q[:, :, :txtlen], k, v, module.heads, mask=txt_mask, skip_reshape=True, transformer_options=transformer_options)
+
+            image_ratio = (image_mask * sign_mask).unsqueeze(1)
+            v[:, :, :txtlen] = v[:, :, :txtlen] * image_ratio[:, :, :txtlen]
+            out_img = attention_function(q[:, :, txtlen:], k, v, module.heads, mask=img_mask, skip_reshape=True, transformer_options=transformer_options)
             out = torch.cat((out_txt, out_img), dim=1)
         return module.wo(out * F.sigmoid(gate))
 
     negpip_forward._negpip = True
     module.forward = negpip_forward
+
+
+def _slice_query_mask(mask: Optional[torch.Tensor], start: int, end: int, query_len: int):
+    if mask is not None and mask.ndim >= 3 and mask.shape[-2] == query_len:
+        return mask[..., start:end, :]
+    return mask

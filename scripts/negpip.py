@@ -11,7 +11,14 @@ from lib_negpip import krea
 from lib_negpip.anima import patch_anima_negpip
 from lib_negpip.krea import patch_krea2_negpip
 from lib_negpip.sd import patch_sd_negpip
-from lib_negpip.utils import NEG_PATTERN, any_negative, any_weighted, hr_dealer, reset_prompt_cache
+from lib_negpip.utils import (
+    NEG_PATTERN,
+    any_negative,
+    any_weighted,
+    hr_dealer,
+    normalize_v_scaling,
+    reset_prompt_cache,
+)
 
 from modules import scripts
 from modules.prompt_parser import (
@@ -23,7 +30,7 @@ from modules.script_callbacks import CFGDenoiserParams, on_cfg_denoiser
 from modules.ui_components import InputAccordion
 
 
-def _verify_ext(p: " StableDiffusionProcessing"):
+def _verify_ext(p: "StableDiffusionProcessing"):
     for ext in p.scripts.scripts:
         if ext.title() not in INCOMPATIBLE_EXTENSIONS:
             continue
@@ -86,7 +93,6 @@ class NegPiP(scripts.Script):
         self.unconds_all = None
         self.hr_unconds_all = None
 
-        krea.V_SCALING = 0.0
         patch_sd_negpip(None, NegPiP, unpatch=True)
         patch_anima_negpip(NegPiP, unpatch=True)
         patch_krea2_negpip(NegPiP, unpatch=True)
@@ -150,11 +156,12 @@ class NegPiP(scripts.Script):
             if self.is_anima:
                 patch_anima_negpip(NegPiP)
             else:
-                if v_scaling:
-                    krea.V_SCALING = max(0.0, min(2.0, float(v_strength)))
-                if krea.V_SCALING > 0.0:
-                    p.extra_generation_params["NegPiP V-Scaling"] = krea.V_SCALING
-                    print(f"NegPiP V-Scaling: {krea.V_SCALING}")
+                strength = normalize_v_scaling(v_scaling, v_strength)
+                if strength > 0.0:
+                    krea.scope_v_scaling_method(p, "setup_conds", strength)
+                    krea.scope_v_scaling_method(p, "calculate_hr_conds", strength)
+                    p.extra_generation_params["NegPiP V-Scaling"] = strength
+                    print(f"NegPiP V-Scaling: {strength}")
                 patch_krea2_negpip(NegPiP)
 
             reset_prompt_cache(p)

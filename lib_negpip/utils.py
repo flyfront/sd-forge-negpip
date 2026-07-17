@@ -1,3 +1,4 @@
+import math
 import re
 from typing import TYPE_CHECKING
 
@@ -56,3 +57,23 @@ def any_weighted(p: "StableDiffusionProcessing") -> bool:
     ]
 
     return any(uses_emphasis(x) for x in prompts)
+
+
+def normalize_v_scaling(enabled, strength) -> float:
+    if isinstance(enabled, str):
+        enabled = enabled.strip().lower() in {"1", "true", "yes", "on"}
+    elif not isinstance(enabled, bool):
+        enabled = enabled == 1
+
+    if not enabled:
+        return 0.0
+
+    try:
+        strength = float(strength)
+    except (TypeError, ValueError):
+        return 0.0
+
+    if not math.isfinite(strength):
+        return 0.0
+
+    return max(0.0, min(2.0, strength))
