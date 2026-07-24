@@ -7,7 +7,7 @@ if TYPE_CHECKING:
 
 from lib_negpip import IS_NEO
 
-NEG_PATTERN = re.compile(r"\(\s*[^:]+\s*\:\s*-\s*\d*\.?\d+\s*\)")
+NEG_PATTERN = re.compile(r"\(\s*(?:[^\\(:)]|\\[\(\)])+?\s*\:\s*-\s*\d*\.?\d+\s*\)")
 
 
 def reset_prompt_cache(p: "StableDiffusionProcessing"):
