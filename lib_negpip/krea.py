@@ -20,7 +20,7 @@ from einops import rearrange
 from backend import memory_management
 from backend.args import dynamic_args
 from backend.attention import attention_function
-from backend.nn.flux import apply_rope
+from backend.quant_ops import ck
 from backend.text_processing import emphasis, parsing
 from lib_negpip.anima import _hook_compile_conditions
 from modules import shared
@@ -330,7 +330,7 @@ def _hook_attn_forward(module: "Attention", remove: bool):
         v = rearrange(v, "B L (H D) -> B H L D", H=module.kvheads)
         q, k = module.qknorm(q, k)
         if freqs is not None:
-            q, k = apply_rope(q, k, freqs)
+            q, k = ck.apply_rope(q, k, freqs)
         if module.kvheads != module.heads:
             rep = module.heads // module.kvheads
             k = k.repeat_interleave(rep, dim=1)
