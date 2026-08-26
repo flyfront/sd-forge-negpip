@@ -80,6 +80,22 @@ def _hook_get_learned_conditioning(model: "Krea2Engine", remove: bool):
     def negpip_learned_conditioning(prompt: "SdConditioning"):
         memory_management.load_model_gpu(model.forge_objects.clip.patcher)
 
+        if not prompt.is_negative_prompt:
+            references = [*getattr(model, "ref_latents", ())]
+            if (ini_latent := getattr(model, "ini_latent", None)) is not None:
+                references.insert(0, ini_latent)
+
+            if getattr(shared.opts, "krea2_do_reference", False) and references:
+                print("NegPiP Positive Disabled (Krea 2 Reference active)")
+                return orig_get_learned_conditioning(prompt)
+
+            # Mirror Forge Neo's no-reference path. In particular, consume a
+            # pending img2img latent and prevent latents from a previous job
+            # from leaking into the diffusion model.
+            if hasattr(model, "ini_latent"):
+                model.ini_latent = None
+            dynamic_args.ref_latents.clear()
+
         engine.emphasis = emphasis.get_current_option(shared.opts.emphasis)()
         if any(emphasis.uses_emphasis(x) for x in prompt):
             dynamic_args.last_extra_generation_params["Emphasis"] = engine.emphasis.name
@@ -181,20 +197,39 @@ def _encode_line(
     elif mask.shape[1] > cond.shape[1]:
         mask = mask[:, : cond.shape[1]]
 
-    # Recent Forge Neo versions flatten Krea 2's 12 tapped encoder layers in
-    # strip_template(), while the diffusion model still expects them as a
-    # separate dimension. Mirror Qwen3VLTextProcessingEngine.__call__ here.
-    if cond.ndim == 3:
-        batch, sequence, fused = cond.shape
-        layers = 12
-        if fused % layers != 0:
-            raise RuntimeError(
-                f"Unexpected Krea 2 conditioning width: {fused} is not divisible by {layers}"
-            )
-        cond = cond.reshape(batch * sequence, layers, fused // layers)
-        mask = mask.reshape(batch * sequence, mask.shape[-1])
+    cond, mask = _reshape_conditioning_for_dit(cond, mask, _PATCHED_DIT)
 
     return cond, mask.to(device=cond.device, dtype=cond.dtype)
+
+
+def _reshape_conditioning_for_dit(
+    cond: torch.Tensor,
+    mask: torch.Tensor,
+    dit: Optional["SingleStreamDiT"],
+) -> tuple[torch.Tensor, torch.Tensor]:
+    # Forge Neo through 2.27 keeps conditioning flattened here and unpacks it
+    # inside SingleStreamDiT.forward(). Newer versions expect the text engine
+    # to return the tapped encoder layers as a separate dimension.
+    if dit is None or hasattr(dit, "_unpack_context"):
+        return cond, mask
+
+    if cond.ndim != 3:
+        raise RuntimeError(
+            f"Unexpected Krea 2 conditioning shape: expected 3 dimensions, got {tuple(cond.shape)}"
+        )
+
+    batch, sequence, fused = cond.shape
+    layers = dit.txtlayers
+    features = dit.txtdim
+    expected = layers * features
+    if fused != expected:
+        raise RuntimeError(
+            f"Unexpected Krea 2 conditioning width: expected {layers}x{features}={expected}, got {fused}"
+        )
+
+    cond = cond.reshape(batch * sequence, layers, features)
+    mask = mask.reshape(batch * sequence, mask.shape[-1])
+    return cond, mask
 
 
 def _hook_dit_forward(dit: "SingleStreamDiT", remove: bool):
