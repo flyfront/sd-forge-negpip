@@ -181,6 +181,19 @@ def _encode_line(
     elif mask.shape[1] > cond.shape[1]:
         mask = mask[:, : cond.shape[1]]
 
+    # Recent Forge Neo versions flatten Krea 2's 12 tapped encoder layers in
+    # strip_template(), while the diffusion model still expects them as a
+    # separate dimension. Mirror Qwen3VLTextProcessingEngine.__call__ here.
+    if cond.ndim == 3:
+        batch, sequence, fused = cond.shape
+        layers = 12
+        if fused % layers != 0:
+            raise RuntimeError(
+                f"Unexpected Krea 2 conditioning width: {fused} is not divisible by {layers}"
+            )
+        cond = cond.reshape(batch * sequence, layers, fused // layers)
+        mask = mask.reshape(batch * sequence, mask.shape[-1])
+
     return cond, mask.to(device=cond.device, dtype=cond.dtype)
 
 
