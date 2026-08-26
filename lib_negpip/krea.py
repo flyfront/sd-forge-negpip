@@ -210,7 +210,10 @@ def _reshape_conditioning_for_dit(
     # Forge Neo through 2.27 keeps conditioning flattened here and unpacks it
     # inside SingleStreamDiT.forward(). Newer versions expect the text engine
     # to return the tapped encoder layers as a separate dimension.
-    if dit is None or hasattr(dit, "_unpack_context"):
+    if dit is None:
+        raise RuntimeError("Krea 2 DiT is not initialized for NegPiP conditioning")
+
+    if hasattr(dit, "_unpack_context"):
         return cond, mask
 
     if cond.ndim != 3:
