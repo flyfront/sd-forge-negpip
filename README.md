@@ -31,8 +31,8 @@ Set **Branch name** to `neo-krea2`, install the extension, and restart the web U
 
 ## How to Use
 
-- Add `(foo:-1.0)` to the **positive prompt** to suppress a concept
-- Add `(bar:-1.0)` to the **negative prompt** to enforce a concept
+- add `(foo:-1.0)` in the `positive prompt` to **remove** a concept
+- add `(bar:-1.0)` in the `negative prompt` to **enforce** a concept
 
 ## Krea 2 Prompt Weighting
 
