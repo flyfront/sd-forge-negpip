@@ -51,6 +51,9 @@ Forge Neo's built-in prompt weighting has practically no effect on Krea 2. This 
 
 ## Examples
 
+> [!NOTE]
+> These example images and prompts are inherited from the upstream extension and were not generated with Krea 2. They demonstrate the original NegPiP behavior; Krea 2 results, especially with positive weights, may differ.
+
 <table>
     <tr>
         <th>Base</th>
