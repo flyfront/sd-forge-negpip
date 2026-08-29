@@ -1,18 +1,41 @@
-# SD Forge Negative Prompt in Prompt
-This is an Extension for Forge [Classic](https://github.com/Haoming02/sd-webui-forge-classic/tree/classic) / [Neo](https://github.com/Haoming02/sd-webui-forge-classic/tree/neo), which implements **NegPip**, allowing you to give words a negative emphasis inside the positive prompt field to suppress a concept, or vice versa.
+# Krea 2 NegPiP for Forge Neo
 
-> [!IMPORTANT]
-> Only **SD1** and **SDXL** are supported<br>
-> 🔥 **New:** Now supports **Anima** & **Krea 2**
+**Negative prompt weighting for Krea 2 (Krea2) in Forge Neo.** Suppress an unwanted concept directly inside the positive prompt with syntax such as `(word:-1.0)`, including Krea 2 generations at CFG 1.
+
+Krea 2 のポジティブプロンプト内で、不要な概念を負の重みによって抑制する Forge Neo 拡張機能です。
+
+This fork's main difference from the [original sd-forge-negpip](https://github.com/Haoming02/sd-forge-negpip) is its dedicated Krea 2 implementation. It also retains NegPiP support for **SD1, SDXL, and Anima**.
+
+## Features
+
+- NegPiP-style negative weights for Krea 2 prompts
+- Negative prompt weights inside the positive prompt, even at CFG 1
+- Non-unit positive weights, although their effect on Krea 2 is usually subtle
+- NegPiP behavior for SD1, SDXL, and Anima inherited from the original extension
+
+## Installation
+
+In Forge Neo, open **Extensions → Install from URL** and enter:
+
+```text
+https://github.com/flyfront/sd-forge-negpip
+```
+
+Set **Branch name** to `neo-krea2`, install the extension, and restart the web UI.
+
+| Branch | Krea 2 support | Recommended for |
+| --- | --- | --- |
+| `neo-krea2` (this branch) | NegPiP; positive weights are usually subtle | Original NegPiP-style suppression |
+| `neo-krea2-emphasis` (default) | NegPiP plus optional V-Scaling | Clearly visible positive and negative prompt weighting |
 
 ## How to Use
 
-- add `(foo:-1.0)` in the `positive prompt` to **remove** a concept
-- add `(bar:-1.0)` in the `negative prompt` to **enforce** a concept
+- Add `(foo:-1.0)` to the **positive prompt** to suppress a concept
+- Add `(bar:-1.0)` to the **negative prompt** to enforce a concept
 
-## Krea 2
+## Krea 2 Prompt Weighting
 
-The built-in prompt weighting has practically no effect on Krea 2. This extension adds NegPiP-style weighting support: negative weights such as `(word:-1.0)` can suppress concepts, just like NegPiP on the other models. Positive weights such as `(word:1.5)` are also applied, but they may be much less visible than negative weights because Krea 2 tends to normalize away simple magnitude changes.
+Forge Neo's built-in prompt weighting has practically no effect on Krea 2. This extension adds NegPiP-style weighting support: negative weights such as `(word:-1.0)` can suppress concepts, just like NegPiP on the other models. Positive weights such as `(word:1.5)` are also applied, but they may be much less visible than negative weights because Krea 2 tends to normalize away simple magnitude changes.
 
 - The extension activates whenever any non-unit weight is present in the prompts, not just negative weights; the activation is recorded as `NegPiP: True` in the infotext
 - Krea 2 has no chunking and `BREAK` is not treated specially, same as without this extension; note that the prompt parser internally marks `BREAK` with a weight of `-1`, so a bare `BREAK` behaves like `(BREAK:-1.0)` while the extension is active
