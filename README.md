@@ -1,18 +1,42 @@
-# SD Forge Negative Prompt in Prompt
-This is an Extension for Forge [Classic](https://github.com/Haoming02/sd-webui-forge-classic/tree/classic) / [Neo](https://github.com/Haoming02/sd-webui-forge-classic/tree/neo), which implements **NegPip**, allowing you to give words a negative emphasis inside the positive prompt field to suppress a concept, or vice versa.
+# Experimental Krea 2 NegPiP for Forge Neo
 
-> [!IMPORTANT]
-> Only **SD1** and **SDXL** are supported<br>
-> 🔥 **New:** Now supports **Anima** & **Krea 2**
+A personal, AI-assisted fork that experiments with NegPiP and prompt weighting for Krea 2 (Krea2) in Forge Neo. It may help when prompt weights such as `(word:1.5)` or `(word:-1.0)` have little or no visible effect.
+
+This fork adds experimental Krea 2 support to the [original sd-forge-negpip](https://github.com/Haoming02/sd-forge-negpip). It also retains NegPiP support for **SD1, SDXL, and Anima**.
+
+> [!NOTE]
+> This is not an official Krea 2 implementation. It was developed largely with AI assistance for my own use and is shared in case it helps someone with the same problem. If the [upstream extension](https://github.com/Haoming02/sd-forge-negpip) adds Krea 2 support, prefer that.
+
+## Features
+
+- NegPiP-style negative weights for Krea 2 prompts
+- Negative prompt weights inside the positive prompt, even at CFG 1
+- Non-unit positive weights, although their effect on Krea 2 is usually subtle
+- NegPiP behavior for SD1, SDXL, and Anima inherited from the original extension
+
+## Installation
+
+In Forge Neo, open **Extensions → Install from URL** and enter:
+
+```text
+https://github.com/flyfront/sd-forge-negpip
+```
+
+Set **Branch name** to `neo-krea2`, install the extension, and restart the web UI.
+
+| Branch | Krea 2 behavior | Intended use |
+| --- | --- | --- |
+| `neo-krea2` (this branch) | NegPiP; positive weights are usually subtle | Original NegPiP-style suppression |
+| `neo-krea2-emphasis` (default) | NegPiP plus optional V-Scaling | More noticeable positive and negative prompt weighting |
 
 ## How to Use
 
 - add `(foo:-1.0)` in the `positive prompt` to **remove** a concept
 - add `(bar:-1.0)` in the `negative prompt` to **enforce** a concept
 
-## Krea 2
+## Krea 2 Prompt Weighting
 
-The built-in prompt weighting has practically no effect on Krea 2. This extension adds NegPiP-style weighting support: negative weights such as `(word:-1.0)` can suppress concepts, just like NegPiP on the other models. Positive weights such as `(word:1.5)` are also applied, but they may be much less visible than negative weights because Krea 2 tends to normalize away simple magnitude changes.
+Forge Neo's built-in prompt weighting has practically no effect on Krea 2. This experimental fork adds NegPiP-style weighting: negative weights such as `(word:-1.0)` can suppress concepts, just like NegPiP on the other models. Positive weights such as `(word:1.5)` are also applied, but they may be much less visible than negative weights because Krea 2 tends to normalize away simple magnitude changes.
 
 This experimental branch (`neo-krea2-emphasis`) additionally offers a much stronger mode: enable the **NegPiP V-Scaling (Krea 2)** accordion on the txt2img / img2img page, and the prompt weight directly scales how much each token contributes inside the model, making both positive and negative weights clearly visible. The **Strength** slider runs from the normal behavior (`0`) to the raw prompt weight (`1`); values up to `2` strengthen the magnitude using a sign-preserving power curve, so weights never flip from emphasis to suppression or vice versa. Since this changes the image considerably, use it only when you need it; the strength is recorded in the infotext as `NegPiP V-Scaling` while it is on. With the accordion off, this branch behaves exactly like the main `neo-krea2` branch.
 
@@ -24,6 +48,9 @@ This experimental branch (`neo-krea2-emphasis`) additionally offers a much stron
 > The Krea 2 support is based on [ComfyUI-krea2-negpip](https://github.com/blue-pen5805/ComfyUI-krea2-negpip). Following that implementation, weighted prompts are tokenized with the chat template applied once around the entire prompt, rather than once per weighted segment like the built-in emphasis does, and weight magnitudes are applied on the text encoder output by interpolating each weighted token between a neutral (empty) encoding and its actual encoding. Since Krea 2 uses normalization heavily, positive weights mostly affect the remaining directional difference and can look subtle, while negative weights additionally flip the token direction in attention values and tend to be much more noticeable. As V-Scaling rises from `0` to `1`, the encoder-side interpolation fades out continuously (large extrapolated weights can drift the token embedding away from its meaning), while the attention values (V) take over the magnitude using `sign(weight) × abs(weight) ** Strength`. V is the only tensor in the attention that Krea 2's normalization does not touch, so the token keeps its meaning while its contribution scales, and weights gain gradation on both sides, e.g. `(word:-2.0)` suppresses more strongly than `(word:-1.0)`. The scaled values are only read by the image tokens; the text tokens keep reading the original sign mask, so the text stream stays intact even at large weights (mirroring how NegPiP works in cross-attention models). Weighted prompts render differently from extension-off.
 
 ## Examples
+
+> [!NOTE]
+> These example images and prompts are inherited from the upstream extension and were not generated with Krea 2. They demonstrate the original NegPiP behavior; Krea 2 results, especially with positive weights, may differ.
 
 <table>
     <tr>
