@@ -9,9 +9,9 @@ This repository maintains the following branches:
 ## Rules
 
 1. Create a topic branch from the branch that will receive the change; do not commit directly to a maintained branch.
-2. Branch shared Krea 2 fixes and compatibility changes from `neo-krea2`, then merge them through a pull request.
-3. Merge `neo-krea2` into `neo-krea2-emphasis` after the shared change is verified.
-4. Branch V-Scaling-specific changes from `neo-krea2-emphasis` and merge them only into that branch.
+2. Start every change intended for both Krea 2 branches from `neo-krea2`, including documentation, maintenance, fixes, and compatibility changes, then merge it through a pull request.
+3. Do not implement or commit the shared part independently on both Krea 2 branches. After the shared change is verified and merged into `neo-krea2`, merge `neo-krea2` into `neo-krea2-emphasis`.
+4. If the change also needs V-Scaling-specific adjustments, add them only after the shared change has reached `neo-krea2-emphasis`. Branch those adjustments from the updated `neo-krea2-emphasis` and merge them only into that branch.
 5. Do not merge `neo-krea2-emphasis` back into `neo-krea2`.
 6. Keep classic Forge changes on `classic`. Port an applicable change explicitly instead of merging a Neo branch into `classic`.
 
@@ -26,4 +26,8 @@ git switch -c fix/descriptive-name
 git switch neo-krea2-emphasis
 git merge neo-krea2
 # verify the combined branch
+
+# if needed, add an emphasis-only follow-up after the merge
+git switch -c change/descriptive-emphasis-update
+# edit, verify, commit, and open a pull request targeting neo-krea2-emphasis
 ```
