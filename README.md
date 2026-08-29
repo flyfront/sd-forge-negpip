@@ -4,8 +4,6 @@
 
 If prompt weights such as `(word:1.5)` or `(word:-1.0)` have no visible effect on Krea 2 in Forge Neo, this extension addresses exactly that.
 
-Krea 2 のポジティブプロンプト内で、不要な概念を負の重みによって抑制する Forge Neo 拡張機能です。
-
 This fork's main difference from the [original sd-forge-negpip](https://github.com/Haoming02/sd-forge-negpip) is its dedicated Krea 2 implementation. It also retains NegPiP support for **SD1, SDXL, and Anima**.
 
 > [!NOTE]
