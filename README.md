@@ -2,9 +2,14 @@
 
 **Negative prompt weighting for Krea 2 (Krea2) in Forge Neo.** Suppress an unwanted concept directly inside the positive prompt with syntax such as `(word:-1.0)`, including Krea 2 generations at CFG 1.
 
+If prompt weights such as `(word:1.5)` or `(word:-1.0)` have no visible effect on Krea 2 in Forge Neo, this extension addresses exactly that.
+
 Krea 2 のポジティブプロンプト内で、不要な概念を負の重みによって抑制する Forge Neo 拡張機能です。
 
 This fork's main difference from the [original sd-forge-negpip](https://github.com/Haoming02/sd-forge-negpip) is its dedicated Krea 2 implementation. It also retains NegPiP support for **SD1, SDXL, and Anima**.
+
+> [!NOTE]
+> This is a personal fork. The Krea 2 support was implemented largely with AI assistance for my own use and is shared in case it helps someone with the same problem. If the [upstream extension](https://github.com/Haoming02/sd-forge-negpip) adds Krea 2 support, prefer that.
 
 ## Features
 
