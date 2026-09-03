@@ -69,6 +69,23 @@ Generated with `krea2_turbo_fp8_scaled` on Forge Neo 2.29 (Euler, 8 steps, CFG 1
 a cute cat sitting on a sofa in a living room, a red apple on the table
 ```
 
+<table>
+    <tr>
+        <th>V-Scaling <b>off</b></th>
+        <th>V-Scaling <b>on</b> (Strength 1.0)</th>
+    </tr>
+    <tr>
+        <td><img src="./img/krea2-vscaling-off.webp" width=256></td>
+        <td><img src="./img/krea2-vscaling-on.webp" width=256></td>
+    </tr>
+</table>
+
+```
+a cute cat sitting on a sofa in a living room, red theme, (blue theme:2.0)
+```
+
+With V-Scaling off, the positive weight barely changes the red-dominated result. With V-Scaling on, blue wins the tug-of-war, and the overall rendering changes as well, as described above.
+
 ### SD1 / SDXL / Anima
 
 > [!NOTE]
