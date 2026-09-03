@@ -50,8 +50,29 @@ The default branch (`neo-krea2-emphasis`) additionally offers an optional strong
 
 ## Examples
 
+### Krea 2
+
+Generated with `krea2_turbo_fp8_scaled` on Forge Neo 2.29 (Euler, 8 steps, CFG 1.0, 1024×1024, same seed).
+
+<table>
+    <tr>
+        <th>Base</th>
+        <th><code>(a red apple:-1.0)</code><br>in <b>Positive</b> Prompt</th>
+    </tr>
+    <tr>
+        <td><img src="./img/krea2-base.webp" width=256></td>
+        <td><img src="./img/krea2-negpip.webp" width=256></td>
+    </tr>
+</table>
+
+```
+a cute cat sitting on a sofa in a living room, a red apple on the table
+```
+
+### SD1 / SDXL / Anima
+
 > [!NOTE]
-> These example images and prompts are inherited from the upstream extension and were not generated with Krea 2. They demonstrate the original NegPiP behavior; Krea 2 results, especially with positive weights, may differ.
+> These example images and prompts are inherited from the upstream extension and were not generated with Krea 2. They demonstrate the original NegPiP behavior. The third image uses a weight in the negative prompt, which has no effect on Krea 2 turbo models at CFG 1 because Forge Neo skips the negative prompt there.
 
 <table>
     <tr>
