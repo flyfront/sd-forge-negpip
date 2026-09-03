@@ -57,7 +57,7 @@ Generated with `krea2_turbo_fp8_scaled` on Forge Neo 2.29 (Euler, 8 steps, CFG 1
 <table>
     <tr>
         <th>Base</th>
-        <th><code>(a red apple:-1.0)</code><br>in <b>Positive</b> Prompt</th>
+        <th><code>(television:-1.0)</code><br>in <b>Positive</b> Prompt</th>
     </tr>
     <tr>
         <td><img src="./img/krea2-base.webp" width=256></td>
@@ -66,7 +66,7 @@ Generated with `krea2_turbo_fp8_scaled` on Forge Neo 2.29 (Euler, 8 steps, CFG 1
 </table>
 
 ```
-a cute cat sitting on a sofa in a living room, a red apple on the table
+a cute cat sitting on a sofa in a living room
 ```
 
 <table>
