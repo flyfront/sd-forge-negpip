@@ -5,7 +5,7 @@ A personal, AI-assisted fork that experiments with NegPiP and prompt weighting f
 This fork adds experimental Krea 2 support to the [original sd-forge-negpip](https://github.com/Haoming02/sd-forge-negpip). It also retains NegPiP support for **SD1, SDXL, and Anima**.
 
 > [!NOTE]
-> This is not an official Krea 2 implementation. It was developed largely with AI assistance for my own use and is shared in case it helps someone with the same problem. If the [upstream extension](https://github.com/Haoming02/sd-forge-negpip) adds Krea 2 support, prefer that.
+> This is not an official Krea 2 implementation. It was developed largely with AI assistance for my own use and is shared in case it helps someone with the same problem. If the [upstream extension](https://github.com/Haoming02/sd-forge-negpip) adds Krea 2 support, prefer that. The original [sd-webui-negpip](https://github.com/hako-mikan/sd-webui-negpip) also supports Krea 2 on Forge Neo since 2026-09-04. Prefer it if negative weights are all you need; this fork additionally applies positive weights such as `(word:1.5)`.
 
 ## Features
 
