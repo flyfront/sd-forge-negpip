@@ -24,10 +24,7 @@ https://github.com/flyfront/sd-forge-negpip
 
 No branch name is required: `neo-krea2-emphasis` is the default branch. Install the extension and restart the web UI.
 
-| Branch | Krea 2 behavior | Intended use |
-| --- | --- | --- |
-| `neo-krea2` | NegPiP; positive weights are usually subtle | Original NegPiP-style suppression |
-| `neo-krea2-emphasis` (this branch, default) | NegPiP plus optional V-Scaling | More noticeable positive and negative prompt weighting |
+The former `neo-krea2` branch (NegPiP without V-Scaling) is frozen. This branch behaves the same way while the **NegPiP V-Scaling (Krea 2)** accordion is closed, and it receives all further fixes.
 
 ## How to Use
 
@@ -37,9 +34,9 @@ No branch name is required: `neo-krea2-emphasis` is the default branch. Install 
 
 ## Krea 2 Prompt Weighting
 
-Forge Neo's built-in prompt weighting has practically no effect on Krea 2. This experimental fork adds NegPiP-style weighting: negative weights such as `(word:-1.0)` can suppress concepts, just like NegPiP on the other models. Positive weights such as `(word:1.5)` are also applied, but they may be much less visible than negative weights because Krea 2 tends to normalize away simple magnitude changes.
+Forge Neo's built-in prompt weighting does not work as intended on Krea 2. It scales the input embeddings, which the text encoder's normalization largely cancels, so a weight such as `(word:1.5)` does not make the word stronger; the weighted prompt may still render noticeably differently, just not in the intended direction. This experimental fork adds NegPiP-style weighting: negative weights such as `(word:-1.0)` can suppress concepts, just like NegPiP on the other models. Positive weights such as `(word:1.5)` are also applied, but they may be much less visible than negative weights because Krea 2 tends to normalize away simple magnitude changes.
 
-The default branch (`neo-krea2-emphasis`) additionally offers an optional stronger mode: enable the **NegPiP V-Scaling (Krea 2)** accordion on the txt2img / img2img page, and the prompt weight directly scales the attention values (V) of the weighted tokens, i.e. how much each token contributes inside the model, making both positive and negative weights more noticeable. The **Strength** slider runs from the normal behavior (`0`) to the raw prompt weight (`1`); values up to `2` strengthen the magnitude using a sign-preserving power curve, so weights never flip from emphasis to suppression or vice versa. Since this changes the image considerably, use it only when you need it; the strength is recorded in the infotext as `NegPiP V-Scaling` while it is on. With the accordion off, this branch behaves exactly like the main `neo-krea2` branch.
+The extension additionally offers an optional stronger mode: enable the **NegPiP V-Scaling (Krea 2)** accordion on the txt2img / img2img page, and the prompt weight directly scales the attention values (V) of the weighted tokens, i.e. how much each token contributes inside the model, making both positive and negative weights more noticeable. The **Strength** slider runs from the normal behavior (`0`) to the raw prompt weight (`1`); values up to `2` strengthen the magnitude using a sign-preserving power curve, so weights never flip from emphasis to suppression or vice versa. Since this changes the image considerably, use it only when you need it; the strength is recorded in the infotext as `NegPiP V-Scaling` while it is on. With the accordion off, the extension behaves like the plain NegPiP-style weighting described above.
 
 - The extension activates whenever any non-unit weight is present in the prompts, not just negative weights; the activation is recorded as `NegPiP: True` in the infotext
 - Krea 2 has no chunking and `BREAK` is not treated specially, same as without this extension; note that the prompt parser internally marks `BREAK` with a weight of `-1`, so a bare `BREAK` behaves like `(BREAK:-1.0)` while the extension is active
