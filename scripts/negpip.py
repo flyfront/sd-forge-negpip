@@ -114,6 +114,7 @@ class NegPiP(scripts.Script):
                 value=1.0,
                 step=0.05,
                 label="Strength",
+                info="Scales the attention values (V) of weighted tokens: sign(w) * |w| ** Strength",
             )
 
         self.infotext_fields = [
