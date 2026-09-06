@@ -1,5 +1,8 @@
 # Experimental Krea 2 NegPiP for Forge Neo
 
+> [!IMPORTANT]
+> This branch is frozen and no longer updated. Use the default branch [`neo-krea2-emphasis`](https://github.com/flyfront/sd-forge-negpip/tree/neo-krea2-emphasis) instead: it behaves exactly like this branch while its **NegPiP V-Scaling (Krea 2)** accordion is closed, and it receives all further fixes.
+
 A personal, AI-assisted fork that experiments with NegPiP and prompt weighting for Krea 2 (Krea2) in Forge Neo. It may help when prompt weights such as `(word:1.5)` or `(word:-1.0)` have little or no visible effect.
 
 This fork adds experimental Krea 2 support to the [original sd-forge-negpip](https://github.com/Haoming02/sd-forge-negpip). It also retains NegPiP support for **SD1, SDXL, and Anima**.
@@ -22,12 +25,12 @@ In Forge Neo, open **Extensions → Install from URL** and enter:
 https://github.com/flyfront/sd-forge-negpip
 ```
 
-Set **Branch name** to `neo-krea2`, install the extension, and restart the web UI.
+Leave **Branch name** empty to install the default branch `neo-krea2-emphasis`, then restart the web UI. This `neo-krea2` branch is kept only for existing installations.
 
 | Branch | Krea 2 behavior | Intended use |
 | --- | --- | --- |
-| `neo-krea2` (this branch) | NegPiP; positive weights are usually subtle | Original NegPiP-style suppression |
-| `neo-krea2-emphasis` (default) | NegPiP plus optional V-Scaling | More noticeable positive and negative prompt weighting |
+| `neo-krea2` (this branch, frozen) | NegPiP; positive weights are usually subtle | No longer updated |
+| `neo-krea2-emphasis` (default) | NegPiP plus optional V-Scaling; identical to this branch with V-Scaling off | All users |
 
 ## How to Use
 
