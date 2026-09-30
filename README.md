@@ -2,8 +2,7 @@
 This is an Extension for Forge [Classic](https://github.com/Haoming02/sd-webui-forge-classic/tree/classic) / [Neo](https://github.com/Haoming02/sd-webui-forge-classic/tree/neo), which implements **NegPip**, allowing you to give words a negative emphasis inside the positive prompt field to suppress a concept, or vice versa.
 
 > [!IMPORTANT]
-> Only **SD1** and **SDXL** are supported<br>
-> 🔥 **New:** Now supports **Anima**
+> Only **SD1** / **SDXL** / **Anima** are supported
 
 ## How to Use
 

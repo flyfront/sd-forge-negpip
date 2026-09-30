@@ -5,7 +5,7 @@ if TYPE_CHECKING:
     from modules.processing import StableDiffusionProcessing
 
 import torch
-from lib_negpip import IS_NEO, INCOMPATIBLE_EXTENSIONS
+from lib_negpip import INCOMPATIBLE_EXTENSIONS, IS_NEO
 from lib_negpip.anima import patch_anima_negpip
 from lib_negpip.sd import patch_sd_negpip
 from lib_negpip.utils import NEG_PATTERN, any_negative, hr_dealer, reset_prompt_cache

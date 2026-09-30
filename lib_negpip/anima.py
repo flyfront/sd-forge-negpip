@@ -8,7 +8,7 @@ if TYPE_CHECKING:
 
     from backend.diffusion_engine.anima import Anima as AnimaEngine
     from backend.nn.anima import Anima
-    from backend.text_processing.anima_engine import AnimaTextProcessingEngine
+    from backend.text_processing.anima_engine import Qwen06Engine
     from modules.prompt_parser import SdConditioning
 
 import torch
@@ -46,7 +46,7 @@ def _hook_get_learned_conditioning(model: "AnimaEngine", remove: bool):
 
     model.orig_forward = model.get_learned_conditioning
 
-    engine: "AnimaTextProcessingEngine" = model.text_processing_engine_anima
+    engine: "Qwen06Engine" = model.text_processing_engine_anima
 
     @torch.inference_mode()
     @wraps(model.orig_forward)
@@ -91,17 +91,14 @@ def _hook_get_learned_conditioning(model: "AnimaEngine", remove: bool):
 
 
 def _build_negpip_mask(
-    text_processing_engine: "AnimaTextProcessingEngine",
+    text_processing_engine: "Qwen06Engine",
     line: str,
     token_length: torch.Size,
     device: torch.device,
     dtype: torch.dtype,
 ):
-    chunks = text_processing_engine.tokenize_line(line)
-
-    multipliers = []
-    for chunk in chunks:
-        multipliers.extend(getattr(chunk, "t5_multipliers", []))
+    chunk = text_processing_engine.t5_tokenizer.tokenize_with_weights(line)
+    multipliers = list(map(lambda x: x[1], chunk[0]))
 
     if len(multipliers) == 0:
         return torch.ones(token_length, device=device, dtype=dtype)
