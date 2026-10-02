@@ -137,9 +137,13 @@ def _hook_get_learned_conditioning(model: "Krea2Engine", remove: bool):
                 model.ini_latent = None
             dynamic_args.ref_latents.clear()
 
-        engine.emphasis = emphasis.get_current_option(shared.opts.emphasis)()
+        # Forge Neo 2.29.2+ hard-wires Krea 2 to EmphasisNone (read-only
+        # property), so follow the user setting here instead of the engine's
+        emphasis_name = emphasis.get_current_option(shared.opts.emphasis).name
+        if _is_legacy_engine(engine):
+            engine.emphasis = emphasis.get_current_option(shared.opts.emphasis)()
         if any(emphasis.uses_emphasis(x) for x in prompt):
-            dynamic_args.last_extra_generation_params["Emphasis"] = engine.emphasis.name
+            dynamic_args.last_extra_generation_params["Emphasis"] = emphasis_name
 
         crossattn = []
         negpip_mask = []
@@ -148,7 +152,7 @@ def _hook_get_learned_conditioning(model: "Krea2Engine", remove: bool):
 
         for line in prompt:
             if line not in cache:
-                cache[line] = _encode_line(engine, line, v_scaling)
+                cache[line] = _encode_line(engine, line, emphasis_name, v_scaling)
             cond, mask = cache[line]
 
             _count += int((mask[..., -1] < 0).sum())
@@ -169,8 +173,52 @@ def _hook_get_learned_conditioning(model: "Krea2Engine", remove: bool):
     model.get_learned_conditioning = negpip_learned_conditioning
 
 
+_ID_PAD = 151643
+_ID_IM_START = 151644
+
+
+def _is_legacy_engine(engine) -> bool:
+    # Forge Neo through 2.29.1 ships Qwen3VLTextProcessingEngine; 2.29.2 replaced
+    # it with the ComfyUI-based Qwen3VL4BEngine, which has no process_tokens
+    return hasattr(engine, "process_tokens")
+
+
+def _hf_tokenizer(engine):
+    return engine.tokenizer if _is_legacy_engine(engine) else engine.tokenizer.tokenizer
+
+
+def _encode_tokens(engine, batch_tokens: list[list[int]]) -> torch.Tensor:
+    """encode without weights; returns [batch, layers, sequence, features]"""
+    if _is_legacy_engine(engine):
+        return engine.process_tokens(batch_tokens, [[1.0] * len(t) for t in batch_tokens])
+    return engine.text_encoder(batch_tokens)[0]
+
+
+def _strip_template(out: torch.Tensor, tokens: list[int]) -> torch.Tensor:
+    """
+    port of the template stripping in Forge Neo's Krea 2 text engine;
+    [batch, layers, sequence, features] -> [batch, sequence, layers * features]
+    """
+    template_end = 0
+    count_im_start = 0
+
+    for i, token in enumerate(tokens):
+        if token == _ID_IM_START and count_im_start < 2:
+            template_end = i
+            count_im_start += 1
+
+    if out.shape[2] > (template_end + 3):
+        if tokens[template_end + 1] == 872 and tokens[template_end + 2] == 198:
+            template_end += 3
+
+    out = out[:, :, template_end:]
+
+    b, n, seq, h = out.shape
+    return out.permute(0, 2, 1, 3).reshape(b, seq, n * h)
+
+
 def _tokenize_line_negpip(
-    engine: "Qwen3VLTextProcessingEngine", line: str
+    engine: "Qwen3VLTextProcessingEngine", line: str, emphasis_name: str
 ) -> tuple[list, list[float]]:
     """
     tokenize like Qwen3VLTextProcessingEngine.tokenize_line, but apply the chat
@@ -178,14 +226,21 @@ def _tokenize_line_negpip(
     so that the weights only cover the user text
     """
 
-    parsed = parsing.parse_prompt_attention(line, engine.emphasis.name)
+    parsed = parsing.parse_prompt_attention(line, emphasis_name)
+    if emphasis_name == "Ignore":
+        parsed = [(text, 1.0) for text, _ in parsed]
 
     if all(weight == 1.0 for _, weight in parsed):
-        chunk = engine.tokenize_line(line)[0]
-        return chunk.tokens, chunk.multipliers
+        if _is_legacy_engine(engine):
+            chunk = engine.tokenize_line(line)[0]
+            return chunk.tokens, chunk.multipliers
+
+        text = "".join(text for text, _ in parsed).strip()
+        tokens = _hf_tokenizer(engine)(engine.llama_template.format(text))["input_ids"]
+        return tokens, [1.0] * len(tokens)
 
     prefix, suffix = engine.llama_template.split("{}")
-    tokenized = engine.tokenizer([prefix, *(text for text, _ in parsed), suffix])["input_ids"]
+    tokenized = _hf_tokenizer(engine)([prefix, *(text for text, _ in parsed), suffix])["input_ids"]
 
     tokens = list(tokenized[0])
     multipliers = [1.0] * len(tokens)
@@ -201,9 +256,12 @@ def _tokenize_line_negpip(
 
 
 def _encode_line(
-    engine: "Qwen3VLTextProcessingEngine", line: str, v_scaling: float = 0.0
+    engine: "Qwen3VLTextProcessingEngine",
+    line: str,
+    emphasis_name: str,
+    v_scaling: float = 0.0,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    tokens, multipliers = _tokenize_line_negpip(engine, line)
+    tokens, multipliers = _tokenize_line_negpip(engine, line, emphasis_name)
 
     neutral = [1.0] * len(multipliers)
     encoder_fade = min(max(v_scaling, 0.0), 1.0)
@@ -219,8 +277,8 @@ def _encode_line(
         # apply the weight magnitudes on the encoder output, by lerping between a
         # neutral (empty) encoding and the actual encoding; scaling the input
         # embeddings instead barely has any effect, as Qwen3-VL RMSNorms them away
-        reference = [engine.id_pad] * len(tokens)
-        z = engine.process_tokens([tokens, reference], [neutral, neutral])
+        reference = [_ID_PAD] * len(tokens)
+        z = _encode_tokens(engine, [tokens, reference])
         cond, ref = z[0:1], z[1:2]
 
         idx = torch.tensor(magnitude_idx, device=cond.device, dtype=torch.long)
@@ -231,7 +289,7 @@ def _encode_line(
         ).reshape(1, 1, -1, 1)
         cond[:, :, idx, :] = torch.lerp(ref[:, :, idx, :], cond[:, :, idx, :], scale)
     else:
-        cond = engine.process_tokens([tokens], [neutral])
+        cond = _encode_tokens(engine, [tokens])
 
     weights = torch.tensor(multipliers, dtype=torch.float32)
     ones = torch.ones_like(weights)
@@ -246,8 +304,8 @@ def _encode_line(
     else:
         mask = sign_mask.unsqueeze(-1)
 
-    cond = engine.strip_template(cond, tokens)
-    mask = engine.strip_template(mask.reshape(1, 1, mask.shape[0], mask.shape[1]), tokens)
+    cond = _strip_template(cond, tokens)
+    mask = _strip_template(mask.reshape(1, 1, mask.shape[0], mask.shape[1]), tokens)
 
     if mask.shape[1] < cond.shape[1]:
         mask = F.pad(mask, (0, 0, 0, cond.shape[1] - mask.shape[1]), value=1.0)
