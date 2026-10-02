@@ -46,7 +46,10 @@ def _hook_get_learned_conditioning(model: "AnimaEngine", remove: bool):
 
     model.orig_forward = model.get_learned_conditioning
 
-    engine: "AnimaTextProcessingEngine" = model.text_processing_engine_anima
+    # Forge Neo 2.29.2 renamed the engine (AnimaTextProcessingEngine -> Qwen06Engine)
+    engine: "AnimaTextProcessingEngine" = getattr(
+        model, "text_processing_engine_anima", None
+    ) or model.text_processing_engine_qwen
 
     @torch.inference_mode()
     @wraps(model.orig_forward)
@@ -97,11 +100,7 @@ def _build_negpip_mask(
     device: torch.device,
     dtype: torch.dtype,
 ):
-    chunks = text_processing_engine.tokenize_line(line)
-
-    multipliers = []
-    for chunk in chunks:
-        multipliers.extend(getattr(chunk, "t5_multipliers", []))
+    multipliers = _t5_multipliers(text_processing_engine, line)
 
     if len(multipliers) == 0:
         return torch.ones(token_length, device=device, dtype=dtype)
@@ -116,6 +115,26 @@ def _build_negpip_mask(
         mask = mask[:token_length]
 
     return mask
+
+
+def _t5_multipliers(text_processing_engine, line: str) -> list[float]:
+    """the per-token weights the engine multiplies into the T5-aligned conditioning"""
+
+    if hasattr(text_processing_engine, "tokenize_line"):
+        multipliers = []
+        for chunk in text_processing_engine.tokenize_line(line):
+            multipliers.extend(getattr(chunk, "t5_multipliers", []))
+        return multipliers
+
+    # Forge Neo 2.29.2+: mirror Qwen06Engine.__call__
+    emphasis_name = text_processing_engine.emphasis.name
+    if emphasis_name == "Ignore":
+        return []
+
+    chunk = text_processing_engine.t5_tokenizer.tokenize_with_weights(
+        line, disable_weights=emphasis_name == "None"
+    )
+    return [weight for _, weight in chunk[0]]
 
 
 def _hook_dit_forward(dit: "Anima", remove: bool):
