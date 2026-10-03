@@ -1,0 +1,79 @@
+name: Bug report / 不具合報告
+description: Report an error or unexpected behavior / エラーや想定外の動作を報告する
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please fill in the fields below. English or Japanese is fine.
+        以下の項目を記入してください。英語でも日本語でも構いません。
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened / 起きたこと
+      description: What you did, what you expected, and what happened instead. / 何をして、どうなるはずが、どうなったか。
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Error log / エラーログ
+      description: |
+        Paste the full console output, including the whole traceback. Write "none" if no error is shown.
+        コンソールの出力をトレースバックごと全部貼ってください。エラーが出ていない場合は「なし」と書いてください。
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    id: forge-version
+    attributes:
+      label: Forge Neo version / Forge Neo のバージョン
+      description: Shown as "Version" in the infotext or at the bottom of the WebUI. / infotext の「Version」または WebUI 下部の表示。
+      placeholder: neo-2.29.2
+    validations:
+      required: true
+
+  - type: dropdown
+    id: model-type
+    attributes:
+      label: Model type / モデルの種類
+      options:
+        - Krea 2
+        - Anima
+        - SDXL
+        - SD 1.5
+        - Other / その他
+    validations:
+      required: true
+
+  - type: input
+    id: checkpoint
+    attributes:
+      label: Checkpoint / チェックポイント
+      description: File name of the model, e.g. INT8 ConvRot or fp8. / モデルのファイル名(INT8 ConvRot、fp8 など)。
+
+  - type: textarea
+    id: prompt
+    attributes:
+      label: Prompt / プロンプト
+      description: The positive and negative prompts that reproduce the problem. / 問題が起きるポジティブ・ネガティブプロンプト。
+    validations:
+      required: true
+
+  - type: dropdown
+    id: v-scaling
+    attributes:
+      label: NegPiP V-Scaling (Krea 2)
+      options:
+        - "Off"
+        - "On"
+        - Not applicable / 該当なし
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Other information / その他
+      description: Other extensions in use, the extension's commit (Extensions → Installed), and anything else that may help. / 併用している拡張機能、この拡張のコミット(Extensions → Installed)など。
