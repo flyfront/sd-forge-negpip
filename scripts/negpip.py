@@ -143,7 +143,7 @@ class NegPiP(scripts.Script):
             elif self.is_krea2:
                 # the weight magnitudes only apply correctly while patched,
                 # so also activate on positive weights
-                active = any_negative(p) or any_weighted(p)
+                active = any_negative(p) or any_weighted(p) or bool(v_scaling)
             else:
                 return
 

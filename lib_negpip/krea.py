@@ -25,6 +25,8 @@ from backend.text_processing import emphasis, parsing
 from lib_negpip.anima import _hook_compile_conditions
 from modules import shared
 
+
+
 _V_SCALING: ContextVar[float] = ContextVar("negpip_v_scaling", default=0.0)
 
 
@@ -359,11 +361,164 @@ def scope_v_scaling_method(obj, name: str, strength: float):
     setattr(obj, name, scoped)
 
 
+_ORIG_KMODEL_APPLY_MODEL = None
+_ORIG_INSTANCE_APPLY_MODEL = {}
+_ORIG_KMODEL_SETATTR = None
+
+
+def _mark_tensor_dynamic(t):
+    """Mark sequence length dimension dynamic so TorchInductor and TorchDynamo do not recompile on prompt text changes."""
+    if not isinstance(t, torch.Tensor) or t.numel() == 0:
+        return
+    # In Krea 2 TextFusionTransformer, context is (batch, seq, layers, dim) or (batch, layers, seq, dim)
+    if t.ndim == 4:
+        try:
+            torch._dynamo.mark_dynamic(t, 1)
+        except Exception:
+            pass
+        try:
+            torch._dynamo.mark_dynamic(t, 2)
+        except Exception:
+            pass
+    # In standard conditioning, context is (batch, seq, dim) -> seq is dim 1
+    elif t.ndim == 3:
+        try:
+            torch._dynamo.mark_dynamic(t, 1)
+        except Exception:
+            pass
+    # In flattened masks/tokens, (seq, dim) -> seq is dim 0
+    elif t.ndim == 2:
+        try:
+            torch._dynamo.mark_dynamic(t, 0)
+        except Exception:
+            pass
+
+
+class _NegPiPDynamicCompiledWrapper(torch.nn.Module):
+    def __init__(self, orig_compiled):
+        super().__init__()
+        object.__setattr__(self, '_orig_compiled', orig_compiled)
+        object.__setattr__(self, '_negpip_dynamic_wrapped', True)
+
+    def _apply_dynamic_guards(self, *d_args, **d_kwargs):
+        for arg in d_args:
+            _mark_tensor_dynamic(arg)
+        for k, v in d_kwargs.items():
+            if isinstance(v, torch.Tensor):
+                _mark_tensor_dynamic(v)
+            elif isinstance(v, dict):
+                for sub_k, sub_v in v.items():
+                    if isinstance(sub_v, torch.Tensor):
+                        _mark_tensor_dynamic(sub_v)
+
+    def forward(self, *d_args, **d_kwargs):
+        self._apply_dynamic_guards(*d_args, **d_kwargs)
+        return self._orig_compiled(*d_args, **d_kwargs)
+
+    def __call__(self, *d_args, **d_kwargs):
+        return self.forward(*d_args, **d_kwargs)
+
+    def __getattr__(self, name):
+        try:
+            return super().__getattr__(name)
+        except AttributeError:
+            return getattr(self._orig_compiled, name)
+
+
+def _wrap_compiled_module(kmodel):
+    compiled = getattr(kmodel, "_forge_compiled_model", None)
+    if compiled is not None and not getattr(compiled, "_negpip_dynamic_wrapped", False):
+        wrapper = _NegPiPDynamicCompiledWrapper(compiled)
+        setattr(kmodel, "_forge_compiled_model", wrapper)
+
+
+try:
+    import torch._inductor.config as inductor_config
+    inductor_config.search_autotune_cache = True
+except Exception:
+    pass
+
+def _hook_kmodel_apply_model(kmodel=None, remove: bool = False):
+    """Wrap KModel.apply_model and intercept _forge_compiled_model to dynamically mark variable text conditioning shapes before TorchDynamo compiles."""
+    global _ORIG_KMODEL_APPLY_MODEL, _ORIG_INSTANCE_APPLY_MODEL, _ORIG_KMODEL_SETATTR
+    try:
+        from backend.modules.k_model import KModel
+    except Exception:
+        KModel = None
+
+    if remove:
+        if kmodel is not None and id(kmodel) in _ORIG_INSTANCE_APPLY_MODEL:
+            orig = _ORIG_INSTANCE_APPLY_MODEL.pop(id(kmodel))
+            if getattr(getattr(kmodel, "apply_model", None), "_negpip", False):
+                kmodel.apply_model = orig
+            compiled = getattr(kmodel, "_forge_compiled_model", None)
+            if compiled is not None and getattr(compiled, "_negpip_dynamic_wrapped", False):
+                setattr(kmodel, "_forge_compiled_model", getattr(compiled, "_orig_compiled", compiled))
+        if KModel is not None and _ORIG_KMODEL_APPLY_MODEL is not None:
+            if getattr(KModel.apply_model, "_negpip", False):
+                KModel.apply_model = _ORIG_KMODEL_APPLY_MODEL
+            _ORIG_KMODEL_APPLY_MODEL = None
+        if KModel is not None and _ORIG_KMODEL_SETATTR is not None:
+            KModel.__setattr__ = _ORIG_KMODEL_SETATTR
+            _ORIG_KMODEL_SETATTR = None
+        return
+
+    # Install class-level __setattr__ hook on KModel so _forge_compiled_model is wrapped immediately upon creation
+    if KModel is not None and _ORIG_KMODEL_SETATTR is None:
+        _ORIG_KMODEL_SETATTR = KModel.__setattr__
+        orig_setattr = _ORIG_KMODEL_SETATTR
+
+        def negpip_kmodel_setattr(self, name, value):
+            if name == "_forge_compiled_model" and value is not None and not getattr(value, "_negpip_dynamic_wrapped", False):
+                value = _NegPiPDynamicCompiledWrapper(value)
+            orig_setattr(self, name, value)
+
+        KModel.__setattr__ = negpip_kmodel_setattr
+
+    # 1. Wrap kmodel instance if available
+    if kmodel is not None:
+        _wrap_compiled_module(kmodel)
+        if not getattr(getattr(kmodel, "apply_model", None), "_negpip", False):
+            orig_inst_apply = kmodel.apply_model
+            _ORIG_INSTANCE_APPLY_MODEL[id(kmodel)] = orig_inst_apply
+
+            @wraps(orig_inst_apply)
+            def negpip_inst_apply_model(*args, **kwargs):
+                _wrap_compiled_module(kmodel)
+                res = orig_inst_apply(*args, **kwargs)
+                _wrap_compiled_module(kmodel)
+                return res
+
+            negpip_inst_apply_model._negpip = True
+            kmodel.apply_model = negpip_inst_apply_model
+
+    # 2. Wrap KModel class as fallback
+    if KModel is not None and not getattr(getattr(KModel, "apply_model", None), "_negpip", False):
+        orig_apply_model = KModel.apply_model
+        _ORIG_KMODEL_APPLY_MODEL = orig_apply_model
+
+        @wraps(orig_apply_model)
+        def negpip_kmodel_apply_model(self, x, t, c_concat=None, c_crossattn=None, control=None, transformer_options={}, **kwargs):
+            _wrap_compiled_module(self)
+            return orig_apply_model(self, x, t, c_concat=c_concat, c_crossattn=c_crossattn, control=control, transformer_options=transformer_options, **kwargs)
+
+        negpip_kmodel_apply_model._negpip = True
+        KModel.apply_model = negpip_kmodel_apply_model
+
+
 def patch_krea2_negpip(cls: "NegPiP", *, unpatch=False):
     global _PATCHED_MODEL, _PATCHED_DIT
 
     if unpatch != cls._patched[2]:
         return
+
+    model: "Krea2Engine" = getattr(shared, "sd_model", None)
+    if model is None:
+        return
+
+    unet = getattr(getattr(model, "forge_objects", None), "unet", None)
+    kmodel = getattr(unet, "model", None)
+    dit: "SingleStreamDiT" = getattr(kmodel, "diffusion_model", None) if kmodel is not None else None
 
     if unpatch:
         if _PATCHED_MODEL is not None:
@@ -374,20 +529,23 @@ def patch_krea2_negpip(cls: "NegPiP", *, unpatch=False):
             _uninstall_krea2_custom_ops(_PATCHED_DIT)
             _uninstall_sage_custom_op()
         _hook_compile_conditions(True)
+        _hook_kmodel_apply_model(kmodel, True)
 
         _PATCHED_MODEL = None
         _PATCHED_DIT = None
         cls._patched[2] = False
         return
 
-    model: "Krea2Engine" = shared.sd_model
-    dit: "SingleStreamDiT" = model.forge_objects.unet.model.diffusion_model
+    if dit is None:
+        return
+
     _hook_get_learned_conditioning(model, False)
     _install_sage_custom_op()
     _install_krea2_custom_ops(dit)
     _hook_dit_forward(dit, False)
     _hook_attn_forwards(dit, False)
     _hook_compile_conditions(False)
+    _hook_kmodel_apply_model(kmodel, False)
 
     _PATCHED_MODEL = model
     _PATCHED_DIT = dit
@@ -620,6 +778,13 @@ def _reshape_conditioning_for_dit(
     # Forge Neo through 2.27 keeps conditioning flattened here and unpacks it
     # inside SingleStreamDiT.forward(). Newer versions expect the text engine
     # to return the tapped encoder layers as a separate dimension.
+    if dit is None:
+        try:
+            m = getattr(shared, "sd_model", None)
+            dit = getattr(getattr(getattr(m, "forge_objects", None), "unet", None), "model", None).diffusion_model
+        except Exception:
+            pass
+
     if dit is None:
         raise RuntimeError("Krea 2 DiT is not initialized for NegPiP conditioning")
 
