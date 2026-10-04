@@ -20,7 +20,7 @@ from einops import rearrange
 from backend import memory_management
 from backend.args import dynamic_args
 from backend.attention import attention_function
-from backend.quant_ops import ck
+from backend.quant_ops import ck, QuantizedTensor
 from backend.text_processing import emphasis, parsing
 from lib_negpip.anima import _hook_compile_conditions
 from modules import shared
@@ -30,6 +30,297 @@ _V_SCALING: ContextVar[float] = ContextVar("negpip_v_scaling", default=0.0)
 
 _PATCHED_MODEL = None
 _PATCHED_DIT = None
+
+_KREA2_W4A8_OP = None
+_KREA2_W4A4_OP = None
+
+
+def _get_w4a8_op():
+    """Register or return the opaque custom op for AsymW4A8Int8 linear execution under TorchDynamo."""
+    global _KREA2_W4A8_OP
+    if _KREA2_W4A8_OP is not None:
+        return _KREA2_W4A8_OP
+
+    try:
+        from comfy_kitchen.tensor.w4a8_int8 import w4a8_int8_linear
+
+        @torch.library.custom_op("krea2::w4a8_linear", mutates_args=())
+        def w4a8_linear(
+            x: torch.Tensor,
+            qdata: torch.Tensor,
+            s_rel: torch.Tensor,
+            s_channel: torch.Tensor,
+            codebook: torch.Tensor | None,
+            correction: torch.Tensor | None,
+            bias: torch.Tensor | None,
+            group_size: int,
+            convrot_groupsize: int,
+            out_dtype: torch.dtype,
+        ) -> torch.Tensor:
+            return w4a8_int8_linear(
+                x,
+                qdata,
+                s_rel,
+                s_channel,
+                codebook=codebook,
+                correction=correction,
+                bias=bias,
+                group_size=group_size,
+                convrot_groupsize=convrot_groupsize,
+                out_dtype=out_dtype,
+            )
+
+        @w4a8_linear.register_fake
+        def _(x, qdata, s_rel, s_channel, codebook, correction, bias, group_size, convrot_groupsize, out_dtype):
+            return x.new_empty((*x.shape[:-1], qdata.shape[0]), dtype=out_dtype)
+
+        _KREA2_W4A8_OP = w4a8_linear
+    except Exception as exc:
+        _KREA2_W4A8_OP = None
+    return _KREA2_W4A8_OP
+
+
+def _get_w4a4_op():
+    """Register or return the opaque custom op for ConvRotW4A4 linear execution under TorchDynamo."""
+    global _KREA2_W4A4_OP
+    if _KREA2_W4A4_OP is not None:
+        return _KREA2_W4A4_OP
+
+    try:
+        from comfy_kitchen.registry import registry as ck_registry
+
+        @torch.library.custom_op("krea2::w4a4_linear", mutates_args=())
+        def w4a4_linear(
+            x: torch.Tensor,
+            qweight: torch.Tensor,
+            wscales: torch.Tensor,
+            bias: torch.Tensor | None,
+            convrot_groupsize: int,
+            quant_group_size: int,
+            linear_dtype: str,
+        ) -> torch.Tensor:
+            impl = ck_registry.get_implementation("convrot_w4a4_linear", kwargs={
+                "x": x, "qweight": qweight, "wscales": wscales, "bias": bias,
+                "convrot_groupsize": convrot_groupsize,
+                "quant_group_size": quant_group_size, "linear_dtype": linear_dtype,
+            })
+            return impl(
+                x, qweight, wscales, bias=bias,
+                convrot_groupsize=convrot_groupsize,
+                quant_group_size=quant_group_size,
+                linear_dtype=linear_dtype,
+            )
+
+        @w4a4_linear.register_fake
+        def _(x, qweight, wscales, bias, convrot_groupsize, quant_group_size, linear_dtype):
+            return x.new_empty(x.shape[:-1] + (qweight.shape[0],))
+
+        _KREA2_W4A4_OP = w4a4_linear
+    except Exception as exc:
+        _KREA2_W4A4_OP = None
+    return _KREA2_W4A4_OP
+
+
+_SAGE_CUSTOM_OP = None
+_ORIG_ATTN_SAGE = None
+_ORIG_ATTN_FUNCTION = None
+_ORIG_KREA_ATTN_FUNCTION = None
+_ORIG_SAGEATTN_CALLABLE = None
+
+
+def _get_sage_op():
+    """Register or return the opaque custom op for SageAttention under TorchDynamo."""
+    global _SAGE_CUSTOM_OP
+    if _SAGE_CUSTOM_OP is not None:
+        return _SAGE_CUSTOM_OP
+
+    try:
+        import sageattention
+
+        @torch.library.custom_op("sage::sageattn", mutates_args=())
+        def sage_op(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, is_causal: bool, tensor_layout: str) -> torch.Tensor:
+            return sageattention.sageattn(q, k, v, is_causal=is_causal, tensor_layout=tensor_layout)
+
+        @sage_op.register_fake
+        def _(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, is_causal: bool, tensor_layout: str) -> torch.Tensor:
+            return q.new_empty(q.shape)
+
+        _SAGE_CUSTOM_OP = sage_op
+    except Exception:
+        _SAGE_CUSTOM_OP = None
+    return _SAGE_CUSTOM_OP
+
+
+def _install_sage_custom_op():
+    """Enable zero-graph-break compilation for SageAttention layers."""
+    global _ORIG_ATTN_SAGE, _ORIG_ATTN_FUNCTION, _ORIG_KREA_ATTN_FUNCTION, _ORIG_SAGEATTN_CALLABLE
+    op = _get_sage_op()
+    if op is None:
+        return
+
+    try:
+        import sageattention
+        import backend.attention as attn
+        import backend.nn.krea as krea_nn
+
+        if _ORIG_SAGEATTN_CALLABLE is None:
+            _ORIG_SAGEATTN_CALLABLE = sageattention.sageattn
+            orig_fn = _ORIG_SAGEATTN_CALLABLE
+
+            def smart_sageattn(q, k, v, attn_mask=None, is_causal=False, tensor_layout="HND"):
+                if torch.compiler.is_compiling() and attn_mask is None:
+                    return op(q, k, v, is_causal, tensor_layout)
+                return orig_fn(q, k, v, attn_mask=attn_mask, is_causal=is_causal, tensor_layout=tensor_layout)
+
+            sageattention.sageattn = smart_sageattn
+
+        unwrapped = getattr(attn.attention_sage, "_torchdynamo_orig_callable", None)
+        if unwrapped is not None:
+            if _ORIG_ATTN_SAGE is None:
+                _ORIG_ATTN_SAGE = attn.attention_sage
+                _ORIG_ATTN_FUNCTION = attn.attention_function
+                _ORIG_KREA_ATTN_FUNCTION = getattr(krea_nn, "attention_function", None)
+
+            attn.attention_sage = unwrapped
+            attn.attention_function = unwrapped
+            krea_nn.attention_function = unwrapped
+            global attention_function
+            attention_function = unwrapped
+    except Exception as e:
+        print(f"[NegPiP-A] SageAttention custom op setup notice: {e}")
+
+
+def _uninstall_sage_custom_op():
+    """Restore original SageAttention wrappers when unpatching."""
+    global _ORIG_ATTN_SAGE, _ORIG_ATTN_FUNCTION, _ORIG_KREA_ATTN_FUNCTION, _ORIG_SAGEATTN_CALLABLE
+    try:
+        import sageattention
+        import backend.attention as attn
+        import backend.nn.krea as krea_nn
+
+        if _ORIG_SAGEATTN_CALLABLE is not None:
+            sageattention.sageattn = _ORIG_SAGEATTN_CALLABLE
+            _ORIG_SAGEATTN_CALLABLE = None
+
+        if _ORIG_ATTN_SAGE is not None:
+            attn.attention_sage = _ORIG_ATTN_SAGE
+            attn.attention_function = _ORIG_ATTN_FUNCTION
+            if _ORIG_KREA_ATTN_FUNCTION is not None:
+                krea_nn.attention_function = _ORIG_KREA_ATTN_FUNCTION
+            global attention_function
+            attention_function = _ORIG_ATTN_FUNCTION
+            _ORIG_ATTN_SAGE = None
+            _ORIG_ATTN_FUNCTION = None
+            _ORIG_KREA_ATTN_FUNCTION = None
+    except Exception:
+        pass
+
+
+def _install_krea2_custom_op(module: torch.nn.Module) -> bool:
+    """Route quantized Linear layers through opaque custom ops when TorchDynamo is compiling."""
+    if getattr(module, "_krea2_op_installed", False):
+        return True
+    weight = getattr(module, "weight", None)
+    if not isinstance(weight, QuantizedTensor):
+        return False
+
+    layout_cls = getattr(weight, "_layout_cls", None)
+    if layout_cls == "AsymW4A8Int8Layout":
+        op = _get_w4a8_op()
+        if op is None:
+            return False
+        params = weight._params
+        if getattr(params, "transposed", False):
+            return False
+
+        from comfy_kitchen.tensor.w4a8_int8 import AsymW4A8Int8Layout
+
+        original = module.forward
+
+        def forward(x, *args, **kwargs):
+            w = module.weight
+            if (args or kwargs or x.ndim < 2 or x.requires_grad
+                    or getattr(module, "weight_function", None)
+                    or getattr(module, "bias_function", None)
+                    or getattr(module, "forge_force_cast_weights", False)
+                    or getattr(module, "_full_precision_mm", False)
+                    or w._qdata.device != x.device):
+                return original(x, *args, **kwargs)
+
+            if torch.compiler.is_compiling():
+                qdata, s_rel, s_channel, correction, codebook = AsymW4A8Int8Layout.get_plain_tensors(w)
+                p = w._params
+                bias = module.bias
+                if bias is not None and bias.dtype != x.dtype:
+                    bias = bias.to(dtype=x.dtype)
+                return op(
+                    x, qdata, s_rel, s_channel, codebook, correction, bias,
+                    p.group_size, p.convrot_groupsize, x.dtype,
+                )
+            return original(x, *args, **kwargs)
+
+        module.forward = forward
+        module._krea2_orig_forward = original
+        module._krea2_op_installed = True
+        return True
+
+    elif layout_cls == "TensorCoreConvRotW4A4Layout":
+        op = _get_w4a4_op()
+        if op is None:
+            return False
+        params = weight._params
+        if getattr(params, "transposed", False):
+            return False
+
+        from comfy_kitchen.tensor.convrot_w4a4 import TensorCoreConvRotW4A4Layout
+
+        original = module.forward
+        groupsize = int(params.convrot_groupsize)
+        quant_group_size = int(params.quant_group_size)
+        linear_dtype = str(params.linear_dtype)
+
+        def forward(x, *args, **kwargs):
+            w = module.weight
+            if (args or kwargs or x.ndim < 2 or x.requires_grad
+                    or getattr(module, "weight_function", None)
+                    or getattr(module, "bias_function", None)
+                    or getattr(module, "forge_force_cast_weights", False)
+                    or getattr(module, "_full_precision_mm", False)
+                    or w._qdata.device != x.device):
+                return original(x, *args, **kwargs)
+
+            if torch.compiler.is_compiling():
+                qweight, wscales = TensorCoreConvRotW4A4Layout.get_plain_tensors(w)
+                bias = module.bias
+                if bias is not None and bias.dtype != x.dtype:
+                    bias = bias.to(dtype=x.dtype)
+                return op(x, qweight, wscales, bias, groupsize, quant_group_size, linear_dtype)
+            return original(x, *args, **kwargs)
+
+        module.forward = forward
+        module._krea2_orig_forward = original
+        module._krea2_op_installed = True
+        return True
+
+    return False
+
+
+def _install_krea2_custom_ops(dit: torch.nn.Module):
+    count = 0
+    for m in dit.modules():
+        if _install_krea2_custom_op(m):
+            count += 1
+    if count > 0:
+        print(f"[NegPiP-A] Installed TorchDynamo custom ops on {count} quantized linear layers")
+
+
+def _uninstall_krea2_custom_ops(dit: torch.nn.Module):
+    for m in dit.modules():
+        if getattr(m, "_krea2_op_installed", False):
+            if hasattr(m, "_krea2_orig_forward"):
+                m.forward = m._krea2_orig_forward
+                del m._krea2_orig_forward
+            m._krea2_op_installed = False
 
 
 @contextmanager
@@ -80,6 +371,8 @@ def patch_krea2_negpip(cls: "NegPiP", *, unpatch=False):
         if _PATCHED_DIT is not None:
             _hook_dit_forward(_PATCHED_DIT, True)
             _hook_attn_forwards(_PATCHED_DIT, True)
+            _uninstall_krea2_custom_ops(_PATCHED_DIT)
+            _uninstall_sage_custom_op()
         _hook_compile_conditions(True)
 
         _PATCHED_MODEL = None
@@ -90,6 +383,8 @@ def patch_krea2_negpip(cls: "NegPiP", *, unpatch=False):
     model: "Krea2Engine" = shared.sd_model
     dit: "SingleStreamDiT" = model.forge_objects.unet.model.diffusion_model
     _hook_get_learned_conditioning(model, False)
+    _install_sage_custom_op()
+    _install_krea2_custom_ops(dit)
     _hook_dit_forward(dit, False)
     _hook_attn_forwards(dit, False)
     _hook_compile_conditions(False)
@@ -350,6 +645,7 @@ def _reshape_conditioning_for_dit(
     return cond, mask
 
 
+
 def _hook_dit_forward(dit: "SingleStreamDiT", remove: bool):
     if remove:
         if hasattr(dit, "_negpip_orig_forward"):
@@ -361,7 +657,6 @@ def _hook_dit_forward(dit: "SingleStreamDiT", remove: bool):
     orig_forward = dit.forward
     dit._negpip_orig_forward = orig_forward
 
-    @torch.inference_mode()
     @wraps(orig_forward)
     def negpip_forward(
         x: torch.Tensor,
@@ -407,7 +702,6 @@ def _hook_attn_forward(module: "Attention", remove: bool):
     orig_forward = module.forward
     module._negpip_orig_forward = orig_forward
 
-    @torch.inference_mode()
     @wraps(orig_forward)
     def negpip_forward(
         x: torch.Tensor,
@@ -429,10 +723,12 @@ def _hook_attn_forward(module: "Attention", remove: bool):
         image_mask = m[..., :1]
         sign_mask = m[..., -1:]
 
-        # Text queries always read sign-masked values. When image queries need
-        # different magnitudes, reuse this V tensor after text attention instead
-        # of retaining a second head-expanded copy.
-        v[:, :txtlen] = v[:, :txtlen] * sign_mask[:, :txtlen]
+        # Text queries always read sign-masked values. Use functional slicing
+        # to ensure compatibility with TorchDynamo and TorchInductor compilation.
+        if txtlen < v.size(1):
+            v = torch.cat((v[:, :txtlen] * sign_mask[:, :txtlen], v[:, txtlen:]), dim=1)
+        else:
+            v = v * sign_mask
 
         q = rearrange(q, "B L (H D) -> B H L D", H=module.heads)
         k = rearrange(k, "B L (H D) -> B H L D", H=module.kvheads)
@@ -453,8 +749,11 @@ def _hook_attn_forward(module: "Attention", remove: bool):
             out_txt = attention_function(q[:, :, :txtlen], k, v, module.heads, mask=txt_mask, skip_reshape=True, transformer_options=transformer_options)
 
             image_ratio = (image_mask * sign_mask).unsqueeze(1)
-            v[:, :, :txtlen] = v[:, :, :txtlen] * image_ratio[:, :, :txtlen]
-            out_img = attention_function(q[:, :, txtlen:], k, v, module.heads, mask=img_mask, skip_reshape=True, transformer_options=transformer_options)
+            if txtlen < v.size(2):
+                v_img = torch.cat((v[:, :, :txtlen] * image_ratio[:, :, :txtlen], v[:, :, txtlen:]), dim=2)
+            else:
+                v_img = v * image_ratio
+            out_img = attention_function(q[:, :, txtlen:], k, v_img, module.heads, mask=img_mask, skip_reshape=True, transformer_options=transformer_options)
             out = torch.cat((out_txt, out_img), dim=1)
         return module.wo(out * F.sigmoid(gate))
 
