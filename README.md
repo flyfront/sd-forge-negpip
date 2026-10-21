@@ -1,17 +1,15 @@
-# Experimental Krea 2 / MOSS-Image NegPiP / Prompt Weighting for Forge Neo
+# NegPiP / Prompt Weighting for Forge Neo (Krea 2, MOSS-Image, Anima, SD1, SDXL)
 
-A personal, AI-assisted fork that experiments with NegPiP and prompt weighting for Krea 2 (Krea2) and MOSS-Image in Forge Neo. It may help when prompt weights such as `(word:1.5)` or `(word:-1.0)` have little or no visible effect.
-
-This fork adds experimental Krea 2 support to the [original sd-forge-negpip](https://github.com/Haoming02/sd-forge-negpip). It also retains NegPiP support for **SD1, SDXL, and Anima**. This `neo-moss` branch additionally supports MOSS-Image through the [moss-image-forge-neo](https://github.com/eduardoabreu81/moss-image-forge-neo) extension; see [MOSS-Image Prompt Weighting](#moss-image-prompt-weighting).
+A personal, AI-assisted fork of [Haoming02's sd-forge-negpip](https://github.com/Haoming02/sd-forge-negpip) for Forge Neo. It adds NegPiP and prompt weighting for Krea 2 (Krea2) and MOSS-Image, which may help when prompt weights such as `(word:1.5)` or `(word:-1.0)` have little or no visible effect, and it keeps the NegPiP support for **SD1, SDXL, and Anima**. See [Krea 2 Prompt Weighting](#krea-2-prompt-weighting) and [MOSS-Image Prompt Weighting](#moss-image-prompt-weighting).
 
 > [!NOTE]
-> This is not an official Krea 2 implementation. It was developed largely with AI assistance for my own use and is shared in case it helps someone with the same problem. If the [upstream extension](https://github.com/Haoming02/sd-forge-negpip) adds Krea 2 support, prefer that. The original [sd-webui-negpip](https://github.com/hako-mikan/sd-webui-negpip) also supports Krea 2 on Forge Neo since 2026-09-04. Prefer it if negative weights are all you need; this fork additionally applies positive weights such as `(word:1.5)`.
+> This is not an official implementation. It was developed largely with AI assistance for my own use and is shared in case it helps someone with the same problem. Haoming02's sd-forge-negpip was archived on 2026-09-30, so this fork is where the Forge Neo version continues. The original [sd-webui-negpip](https://github.com/hako-mikan/sd-webui-negpip) also supports Krea 2 on Forge Neo since 2026-09-04; prefer it if negative weights are all you need, as this fork additionally applies positive weights such as `(word:1.5)`.
 
 ## Features
 
 - Negative prompt weights inside the positive prompt, even when using Krea 2 at CFG 1
 - Optional **V-Scaling**, which scales the attention values (V) of weighted tokens, for more noticeable positive and negative Krea 2 prompt weights
-- The same NegPiP weighting and V-Scaling for MOSS-Image, which otherwise ignores prompt weights entirely (`neo-moss` branch)
+- The same NegPiP weighting and V-Scaling for MOSS-Image, which otherwise ignores prompt weights entirely, with Forge Neo's own MOSS-Image support as well as the moss-image-forge-neo extension
 - NegPiP behavior for SD1, SDXL, and Anima inherited from the original extension
 - Forge Neo integration for txt2img and img2img
 
@@ -23,13 +21,11 @@ In Forge Neo, open **Extensions → Install from URL** and enter:
 https://github.com/flyfront/sd-forge-negpip
 ```
 
-No branch name is required: `neo-krea2-emphasis` is the default branch. Install the extension and restart the web UI.
+No branch name is required: `neo` is the default branch and covers every supported model, including MOSS-Image. Install the extension and restart the web UI.
 
-For MOSS-Image support, enter `neo-moss` as the branch name (or `git switch neo-moss` inside `extensions/sd-forge-negpip`). It contains everything in `neo-krea2-emphasis` plus the MOSS-Image files, and it requires the [moss-image-forge-neo](https://github.com/eduardoabreu81/moss-image-forge-neo) extension to be installed and enabled; without it, the branch behaves exactly like `neo-krea2-emphasis`.
+If you installed this extension earlier on the `neo-krea2-emphasis` branch, nothing changes: that branch is kept as a mirror of `neo` and keeps receiving the same commits. The `neo-moss` branch (where the MOSS-Image support was developed) and the older `neo-krea2` branch (NegPiP without V-Scaling) are frozen; switch to `neo` with `git switch neo` inside `extensions/sd-forge-negpip` to keep getting updates.
 
-The former `neo-krea2` branch (NegPiP without V-Scaling) is frozen. This branch behaves the same way while the **NegPiP V-Scaling** accordion is closed, and it receives all further fixes.
-
-On `neo-moss` the accordion is labeled **NegPiP V-Scaling**, and the models it applies to (Krea 2 / MOSS-Image) are listed in the Strength slider's description; `neo-krea2-emphasis` keeps the label **NegPiP V-Scaling (Krea 2)**. The label is also the `ui-config.json` key, so a default you saved there under the old label has to be set again after switching branches.
+The V-Scaling accordion is labeled **NegPiP V-Scaling** (it was **NegPiP V-Scaling (Krea 2)** before 2026-10-22); the models it applies to are listed in the Strength slider's description. The label is also the `ui-config.json` key, so a default you saved there under the old label has to be set again.
 
 ## How to Use
 
@@ -52,12 +48,12 @@ The extension additionally offers an optional stronger mode: enable the **NegPiP
 
 ## MOSS-Image Prompt Weighting
 
-MOSS-Image comes to Forge Neo in two ways: the [moss-image-forge-neo](https://github.com/eduardoabreu81/moss-image-forge-neo) extension, and Forge Neo's own support ([Haoming02/sd-webui-forge-classic#1564](https://github.com/Haoming02/sd-webui-forge-classic/pull/1564), not merged at the time of writing). Both pass the prompt to the Qwen3.5-9B text encoder verbatim, so prompt weights such as `(word:1.5)` or `(word:-1.0)` are not even parsed: the parentheses and the number reach the text encoder as text. The `neo-moss` branch of this extension detects which implementation loaded the model and hooks its text engine and DiT the same way as for Krea 2; there is nothing to configure:
+MOSS-Image comes to Forge Neo in two ways: Forge Neo's own support (since [Haoming02/sd-webui-forge-classic#1564](https://github.com/Haoming02/sd-webui-forge-classic/pull/1564), merged 2026-10-21) and the earlier [moss-image-forge-neo](https://github.com/eduardoabreu81/moss-image-forge-neo) extension. Both pass the prompt to the Qwen3.5-9B text encoder verbatim, so prompt weights such as `(word:1.5)` or `(word:-1.0)` are not even parsed: the parentheses and the number reach the text encoder as text. This extension detects which implementation loaded the model and hooks its text engine and DiT the same way as for Krea 2; there is nothing to configure:
 
 - Weighted prompts are parsed with Forge Neo's prompt parser (the `Emphasis` setting applies), tokenized with the MOSS-Image chat template once around the whole prompt, and the weighted segments are tokenized so that they produce the same tokens as the plain prompt
-- Weight magnitudes are applied through the extension's own ComfyUI-compatible text encoder, which interpolates each weighted token between the empty encoding and its own, i.e. the standard ComfyUI prompt weighting
+- Weight magnitudes are applied through Forge Neo's ComfyUI-compatible text encoder path (which both implementations use), interpolating each weighted token between the empty encoding and its own, i.e. the standard ComfyUI prompt weighting
 - Negative weights flip the sign of the token's attention values (V) in all 42 joint blocks of the DiT; the text-only refinement blocks are left alone. The optional **V-Scaling** works like on Krea 2: the image tokens read `sign(weight) × abs(weight) ** Strength`, the text tokens read the sign only
-- A prompt without effective weights is encoded exactly as the extension does on its own
+- A prompt without effective weights is encoded exactly as the implementation does on its own
 - In a layout prompt (a JSON object, e.g. written by [Regional Boxes](https://github.com/eduardoabreu81/sd-regional-boxes-neo) or Forge Neo's JSON Builder), weights are read only inside the captions (the scene `caption` and each item's `caption`); the words to render (`text`), `meta` and the boxes are data and stay verbatim, so the brackets of a box never count as emphasis. Plain prompt text after the layout (the JSON Builder's `Extra` field) is weighted as usual. A layout without weights is passed through untouched and does not activate the extension
 - `BREAK` is a plain word for MOSS-Image; while NegPiP is active it stays a plain word
 - The negative-prompt block skipping keeps working, both the extension's (`[MOSS-Image] Blocks skipped in the negative-prompt pass`) and Forge Neo's Skip Layer Guidance

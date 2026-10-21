@@ -40,10 +40,12 @@ body:
     id: branch
     attributes:
       label: Branch of this extension / この拡張のブランチ
-      description: Shown under Extensions → Installed. MOSS-Image works only on neo-moss. / Extensions → Installed に表示されます。MOSS-Image は neo-moss でのみ動作します。
+      description: Shown under Extensions → Installed. neo is current; neo-krea2-emphasis mirrors it; neo-moss and neo-krea2 are frozen. / Extensions → Installed に表示されます。neo が最新、neo-krea2-emphasis はそのミラー、neo-moss と neo-krea2 は凍結です。
       options:
-        - neo-krea2-emphasis (default / 既定)
-        - neo-moss
+        - neo (default / 既定)
+        - neo-krea2-emphasis (mirror of neo / neo のミラー)
+        - neo-moss (frozen / 凍結)
+        - neo-krea2 (frozen / 凍結)
         - Not sure / 分からない
     validations:
       required: true
