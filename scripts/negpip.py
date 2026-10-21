@@ -10,6 +10,8 @@ from lib_negpip import IS_NEO, INCOMPATIBLE_EXTENSIONS
 from lib_negpip import krea
 from lib_negpip.anima import patch_anima_negpip
 from lib_negpip.krea import patch_krea2_negpip
+from lib_negpip import moss
+from lib_negpip.moss import is_moss_image, patch_moss_negpip
 from lib_negpip.sd import patch_sd_negpip
 from lib_negpip.utils import (
     NEG_PATTERN,
@@ -42,7 +44,7 @@ def _verify_ext(p: "StableDiffusionProcessing"):
 
 class NegPiP(scripts.Script):
     sorting_priority = 18139  # right below Krea2 Enhancer (18138)
-    _patched: list[bool] = [False, False, False]
+    _patched: list[bool] = [False, False, False, False]
 
     def __init__(self):
         self.active: bool = False
@@ -50,6 +52,7 @@ class NegPiP(scripts.Script):
         self.is_xl: bool
         self.is_anima: bool
         self.is_krea2: bool
+        self.is_moss: bool
         self.is_hr: bool
 
         self.tokenizer: torch.nn.Module
@@ -79,6 +82,7 @@ class NegPiP(scripts.Script):
         self.is_xl = False
         self.is_anima = False
         self.is_krea2 = False
+        self.is_moss = False
         self.is_hr = False
 
         self.tokenizer = None
@@ -96,6 +100,7 @@ class NegPiP(scripts.Script):
         patch_sd_negpip(None, NegPiP, unpatch=True)
         patch_anima_negpip(NegPiP, unpatch=True)
         patch_krea2_negpip(NegPiP, unpatch=True)
+        patch_moss_negpip(NegPiP, unpatch=True)
 
     def title(self):
         return "NegPiP"
@@ -107,14 +112,14 @@ class NegPiP(scripts.Script):
         if not IS_NEO:
             return None
 
-        with InputAccordion(False, label="NegPiP V-Scaling (Krea 2)") as v_scaling:
+        with InputAccordion(False, label="NegPiP V-Scaling") as v_scaling:
             v_strength = gr.Slider(
                 minimum=0.0,
                 maximum=2.0,
                 value=1.0,
                 step=0.05,
                 label="Strength",
-                info="Scales the attention values (V) of weighted tokens: sign(w) * |w| ** Strength",
+                info="Krea 2 / MOSS-Image only. Scales the attention values (V) of weighted tokens: sign(w) * |w| ** Strength",
             )
 
         self.infotext_fields = [
@@ -137,9 +142,13 @@ class NegPiP(scripts.Script):
             model_type = type(p.sd_model).__name__
             self.is_anima = model_type == "Anima"
             self.is_krea2 = model_type == "Krea2"
+            self.is_moss = is_moss_image(p.sd_model)
 
             if self.is_anima:
                 active = any_negative(p)
+            elif self.is_moss:
+                # as for Krea 2, but a layout prompt (JSON) never counts as weighted
+                active = moss.any_weighted(p.sd_model, p)
             elif self.is_krea2:
                 # the weight magnitudes only apply correctly while patched,
                 # so also activate on positive weights
@@ -157,13 +166,17 @@ class NegPiP(scripts.Script):
             if self.is_anima:
                 patch_anima_negpip(NegPiP)
             else:
+                if self.is_moss:
+                    if not patch_moss_negpip(NegPiP):
+                        return
+                else:
+                    patch_krea2_negpip(NegPiP)
                 strength = normalize_v_scaling(v_scaling, v_strength)
                 if strength > 0.0:
                     krea.scope_v_scaling_method(p, "setup_conds", strength)
                     krea.scope_v_scaling_method(p, "calculate_hr_conds", strength)
                     p.extra_generation_params["NegPiP V-Scaling"] = strength
                     print(f"NegPiP V-Scaling: {strength}")
-                patch_krea2_negpip(NegPiP)
 
             reset_prompt_cache(p)
             p.extra_generation_params["NegPiP"] = True
@@ -234,7 +247,7 @@ class NegPiP(scripts.Script):
         self.is_hr = True
 
     def denoiser_callback(self, params: CFGDenoiserParams):
-        if (not self.active) or self.is_anima or self.is_krea2:
+        if (not self.active) or self.is_anima or self.is_krea2 or self.is_moss:
             return
 
         conds_list = []
