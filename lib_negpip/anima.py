@@ -46,7 +46,7 @@ def _hook_get_learned_conditioning(model: "AnimaEngine", remove: bool):
 
     model.orig_forward = model.get_learned_conditioning
 
-    engine: "Qwen06Engine" = model.text_processing_engine_anima
+    engine: "Qwen06Engine" = model.text_processing_engine_qwen
 
     @torch.inference_mode()
     @wraps(model.orig_forward)
