@@ -4,7 +4,7 @@ This repository maintains the following branches:
 
 - `classic`: the upstream-compatible implementation for classic Forge (Haoming02's sd-forge-negpip, archived on 2026-09-30).
 - `neo`: the Forge Neo implementation. This is the default branch and receives every Forge Neo change: SD1 / SDXL, Anima, Krea 2 with the opt-in V-Scaling, and MOSS-Image (Forge Neo's own support and the moss-image-forge-neo extension).
-- `neo-krea2-emphasis`: a mirror of `neo`, kept so that installations made while it was the default branch keep updating. Push every `neo` commit to it; never commit to it directly.
+- `neo-krea2-emphasis`: a mirror of `neo`, kept so that installations made while it was the default branch keep updating. Push every `neo` commit to it; never commit to it directly. The mirror is temporary: the README recommends switching to `neo`, and the mirror will be frozen at some point.
 
 Frozen branches, kept only so that existing checkouts do not break: `neo-krea2` (the base shared by the Forge Neo variants until 2026-09-06) and `neo-moss` (where the MOSS-Image support was developed until it was merged on 2026-10-22). Do not commit to them or merge them anywhere.
 
