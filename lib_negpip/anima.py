@@ -139,16 +139,17 @@ def _t5_multipliers(text_processing_engine, line: str) -> list[float]:
 
 def _hook_dit_forward(dit: "Anima", remove: bool):
     if remove:
-        if hasattr(dit, "orig_forward"):
-            if getattr(dit.forward, "_negpip", False):
-                dit.forward = dit.orig_forward
-            del dit.orig_forward
+        if getattr(dit.forward, "_negpip", False):
+            dit.forward = dit.forward._negpip_orig
         return
 
-    dit.orig_forward = dit.forward
+    if getattr(dit.forward, "_negpip", False):
+        return
+
+    orig_forward = dit.forward
 
     @torch.inference_mode()
-    @wraps(dit.orig_forward)
+    @wraps(orig_forward)
     def negpip_forward(
         x: torch.Tensor,
         timesteps: torch.Tensor,
@@ -171,9 +172,10 @@ def _hook_dit_forward(dit: "Anima", remove: bool):
         transformer_options["negpip_mask"] = negpip_mask
         kwargs["transformer_options"] = transformer_options
 
-        return dit.orig_forward(x, timesteps, context, padding_mask, **kwargs)
+        return orig_forward(x, timesteps, context, padding_mask, **kwargs)
 
     negpip_forward._negpip = True
+    negpip_forward._negpip_orig = orig_forward
     dit.forward = negpip_forward
 
 
